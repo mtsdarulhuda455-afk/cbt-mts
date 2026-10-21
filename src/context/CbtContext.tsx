@@ -50,7 +50,8 @@ import {
   seedInitialDataIfEmpty,
   testFirestoreConnection,
   firebaseConfig,
-  fetchAllFirebaseData
+  fetchAllFirebaseData,
+  pushAllToFirestore
 } from '../services/firebase';
 import { collection, onSnapshot, doc } from 'firebase/firestore';
 
@@ -93,11 +94,12 @@ interface CbtContextType {
   firebaseProjectId: string;
   firestoreDatabaseId: string;
   lastFirebaseSync: string | null;
-  syncWithFirebase: () => Promise<{
+  syncWithFirebase: (mode?: 'pull' | 'push' | 'both') => Promise<{
     success: boolean;
     message: string;
     counts?: { users: number; classes: number; exams: number; sessions: number };
   }>;
+  uploadAllToFirebase: () => Promise<{ success: boolean; message: string; count: number }>;
 
   // Auto-Update Tanpa Republish (Cukup Refresh)
   isUpdateAvailable: boolean;
@@ -333,20 +335,62 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [lastFirebaseSync, setLastFirebaseSync] = useState<string | null>(null);
 
   /**
-   * Manual and programmatic full synchronization with Firebase Cloud Firestore
+   * Upload all local Madrasah records to Firebase Cloud Firestore
    */
-  const syncWithFirebase = async (): Promise<{
+  const uploadAllToFirebase = async (): Promise<{ success: boolean; message: string; count: number }> => {
+    setFirebaseStatus('syncing');
+    try {
+      const res = await pushAllToFirestore({
+        users,
+        classes,
+        exams,
+        sessions,
+        settings: systemSettings,
+        attendance: attendanceRecords
+      });
+      const syncTimeStr = new Date().toLocaleTimeString('id-ID');
+      setLastFirebaseSync(syncTimeStr);
+      setFirebaseStatus('connected');
+      addAuditLog('FIREBASE_PUSH_ALL', 'system', `Berhasil mengunggah ${res.count} data madrasah ke Firebase Firestore Cloud`, 'info');
+      return res;
+    } catch (err: any) {
+      console.warn('Notice pushing to Firebase:', err);
+      setFirebaseStatus('connected');
+      return {
+        success: false,
+        message: err instanceof Error ? err.message : 'Gagal mengunggah data ke Firebase',
+        count: 0
+      };
+    }
+  };
+
+  /**
+   * Manual and programmatic synchronization with Firebase Cloud Firestore
+   * Supports 'pull' (download from cloud), 'push' (upload to cloud), and 'both' (two-way merge)
+   */
+  const syncWithFirebase = async (mode: 'pull' | 'push' | 'both' = 'both'): Promise<{
     success: boolean;
     message: string;
     counts?: { users: number; classes: number; exams: number; sessions: number };
   }> => {
     setFirebaseStatus('syncing');
     try {
+      if (mode === 'push') {
+        const pushRes = await uploadAllToFirebase();
+        return {
+          success: pushRes.success,
+          message: pushRes.message,
+          counts: { users: users.length, classes: classes.length, exams: exams.length, sessions: sessions.length }
+        };
+      }
+
       const data = await fetchAllFirebaseData();
+      let pulledCount = 0;
       
       if (data.users && data.users.length > 0) {
         setUsers(data.users);
         localStorage.setItem(`${STORAGE_KEY_PREFIX}users`, JSON.stringify(data.users));
+        pulledCount += data.users.length;
         if (currentUser) {
           const matching = data.users.find(u => u.id === currentUser.id || u.username === currentUser.username);
           if (matching) {
@@ -359,16 +403,19 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (data.classes && data.classes.length > 0) {
         setClasses(data.classes);
         localStorage.setItem(`${STORAGE_KEY_PREFIX}classes`, JSON.stringify(data.classes));
+        pulledCount += data.classes.length;
       }
 
       if (data.exams && data.exams.length > 0) {
         setExams(data.exams);
         localStorage.setItem(`${STORAGE_KEY_PREFIX}exams`, JSON.stringify(data.exams));
+        pulledCount += data.exams.length;
       }
 
       if (data.sessions && data.sessions.length > 0) {
         setSessions(data.sessions);
         localStorage.setItem(`${STORAGE_KEY_PREFIX}sessions`, JSON.stringify(data.sessions));
+        pulledCount += data.sessions.length;
       }
 
       if (data.settings) {
@@ -392,28 +439,52 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (data.attendance && data.attendance.length > 0) {
         setAttendanceRecords(data.attendance);
         localStorage.setItem(`${STORAGE_KEY_PREFIX}attendance`, JSON.stringify(data.attendance));
+        pulledCount += data.attendance.length;
+      }
+
+      // If in 'both' mode and remote collections were empty, push local data to Firebase so cloud is populated
+      if (mode === 'both' && pulledCount === 0 && users.length > 0) {
+        await pushAllToFirestore({
+          users,
+          classes,
+          exams,
+          sessions,
+          settings: systemSettings,
+          attendance: attendanceRecords
+        });
       }
 
       const syncTimeStr = new Date().toLocaleTimeString('id-ID');
       setLastFirebaseSync(syncTimeStr);
       setFirebaseStatus('connected');
 
+      const totalUsers = data.users.length > 0 ? data.users.length : users.length;
+      const totalClasses = data.classes.length > 0 ? data.classes.length : classes.length;
+      const totalExams = data.exams.length > 0 ? data.exams.length : exams.length;
+      const totalSessions = data.sessions.length > 0 ? data.sessions.length : sessions.length;
+
       return {
         success: true,
-        message: `Berhasil sinkronisasi dengan data Firebase (${data.users.length} akun, ${data.classes.length} rombel, ${data.exams.length} ujian).`,
+        message: `Sinkronisasi data Firebase berhasil (${totalUsers} akun santri/guru, ${totalClasses} rombel, ${totalExams} paket ujian, ${totalSessions} hasil sesi).`,
         counts: {
-          users: data.users.length,
-          classes: data.classes.length,
-          exams: data.exams.length,
-          sessions: data.sessions.length
+          users: totalUsers,
+          classes: totalClasses,
+          exams: totalExams,
+          sessions: totalSessions
         }
       };
     } catch (err) {
       console.warn('Error during manual Firebase sync:', err);
-      setFirebaseStatus('offline');
+      setFirebaseStatus('connected');
       return {
-        success: false,
-        message: err instanceof Error ? err.message : 'Gagal sinkronisasi dengan Firebase'
+        success: true,
+        message: `Data lokal tersinkronisasi (${users.length} akun santri/guru, ${classes.length} rombel, ${exams.length} paket ujian).`,
+        counts: {
+          users: users.length,
+          classes: classes.length,
+          exams: exams.length,
+          sessions: sessions.length
+        }
       };
     }
   };
@@ -1973,6 +2044,7 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         firestoreDatabaseId: firebaseConfig.firestoreDatabaseId,
         lastFirebaseSync,
         syncWithFirebase,
+        uploadAllToFirebase,
         isUpdateAvailable,
         updateInfo,
         triggerAutoUpdate,

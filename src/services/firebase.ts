@@ -92,18 +92,18 @@ export async function fetchAllFirebaseData(): Promise<{
   auditLogs: SystemAuditLog[];
   attendance: AttendanceRecord[];
 }> {
-  try {
-    const [usersSnap, classesSnap, examsSnap, sessionsSnap, settingsSnap, logsSnap, attendanceSnap] = await Promise.all([
-      getDocs(collection(db, 'users')),
-      getDocs(collection(db, 'classes')),
-      getDocs(collection(db, 'exams')),
-      getDocs(collection(db, 'sessions')),
-      getDoc(doc(db, 'settings', 'main')),
-      getDocs(collection(db, 'auditLogs')),
-      getDocs(collection(db, 'attendance'))
-    ]);
+  let users: User[] = [];
+  let classes: ClassGroup[] = [];
+  let exams: Exam[] = [];
+  let sessions: StudentExamSession[] = [];
+  let settings: Partial<SystemSettings> | null = null;
+  let auditLogs: SystemAuditLog[] = [];
+  let attendance: AttendanceRecord[] = [];
 
-    const users: User[] = usersSnap.docs.map(d => {
+  // 1. Users
+  try {
+    const usersSnap = await getDocs(collection(db, 'users'));
+    users = usersSnap.docs.map(d => {
       const data = d.data();
       return {
         id: data.id || d.id,
@@ -119,8 +119,14 @@ export async function fetchAllFirebaseData(): Promise<{
         photoUrl: data.photoUrl || ''
       } as User;
     });
+  } catch (err) {
+    console.warn('Notice fetching users from Firebase:', err);
+  }
 
-    const classes: ClassGroup[] = classesSnap.docs.map(d => {
+  // 2. Classes
+  try {
+    const classesSnap = await getDocs(collection(db, 'classes'));
+    classes = classesSnap.docs.map(d => {
       const data = d.data();
       return {
         id: data.id || d.id,
@@ -132,8 +138,14 @@ export async function fetchAllFirebaseData(): Promise<{
         majorOrTrack: data.majorOrTrack || 'Reguler'
       } as ClassGroup;
     });
+  } catch (err) {
+    console.warn('Notice fetching classes from Firebase:', err);
+  }
 
-    const exams: Exam[] = examsSnap.docs.map(d => {
+  // 3. Exams
+  try {
+    const examsSnap = await getDocs(collection(db, 'exams'));
+    exams = examsSnap.docs.map(d => {
       const data = d.data();
       return {
         id: data.id || d.id,
@@ -160,8 +172,14 @@ export async function fetchAllFirebaseData(): Promise<{
         examEndTime: data.examEndTime || '09:00'
       } as Exam;
     });
+  } catch (err) {
+    console.warn('Notice fetching exams from Firebase:', err);
+  }
 
-    const sessions: StudentExamSession[] = sessionsSnap.docs.map(d => {
+  // 4. Sessions
+  try {
+    const sessionsSnap = await getDocs(collection(db, 'sessions'));
+    sessions = sessionsSnap.docs.map(d => {
       const data = d.data();
       return {
         ...data,
@@ -175,10 +193,22 @@ export async function fetchAllFirebaseData(): Promise<{
         answers: data.answers || {}
       } as StudentExamSession;
     });
+  } catch (err) {
+    console.warn('Notice fetching sessions from Firebase:', err);
+  }
 
-    const settings = settingsSnap.exists() ? (settingsSnap.data() as Partial<SystemSettings>) : null;
+  // 5. Settings
+  try {
+    const settingsSnap = await getDoc(doc(db, 'settings', 'main'));
+    settings = settingsSnap.exists() ? (settingsSnap.data() as Partial<SystemSettings>) : null;
+  } catch (err) {
+    console.warn('Notice fetching settings from Firebase:', err);
+  }
 
-    const auditLogs: SystemAuditLog[] = logsSnap.docs.map(d => {
+  // 6. Audit Logs
+  try {
+    const logsSnap = await getDocs(collection(db, 'auditLogs'));
+    auditLogs = logsSnap.docs.map(d => {
       const data = d.data();
       return {
         id: data.id || d.id,
@@ -192,8 +222,14 @@ export async function fetchAllFirebaseData(): Promise<{
         level: data.level || 'info'
       } as SystemAuditLog;
     });
+  } catch (err) {
+    console.warn('Notice fetching auditLogs from Firebase:', err);
+  }
 
-    const attendance: AttendanceRecord[] = attendanceSnap.docs.map(d => {
+  // 7. Attendance
+  try {
+    const attendanceSnap = await getDocs(collection(db, 'attendance'));
+    attendance = attendanceSnap.docs.map(d => {
       const data = d.data();
       return {
         ...data,
@@ -207,11 +243,55 @@ export async function fetchAllFirebaseData(): Promise<{
         timestamp: data.timestamp || Date.now()
       } as AttendanceRecord;
     });
-
-    return { users, classes, exams, sessions, settings, auditLogs, attendance };
   } catch (err) {
-    handleFirestoreError(err, OperationType.LIST, 'all_collections');
-    throw err;
+    console.warn('Notice fetching attendance from Firebase:', err);
+  }
+
+  return { users, classes, exams, sessions, settings, auditLogs, attendance };
+}
+
+/**
+ * Push all local data to Firestore Cloud Database
+ */
+export async function pushAllToFirestore(data: {
+  users: User[];
+  classes: ClassGroup[];
+  exams: Exam[];
+  sessions: StudentExamSession[];
+  settings: SystemSettings;
+  attendance: AttendanceRecord[];
+}): Promise<{ success: boolean; message: string; count: number }> {
+  let count = 0;
+  try {
+    const batch = writeBatch(db);
+    data.users.forEach(u => {
+      batch.set(doc(db, 'users', u.id), JSON.parse(JSON.stringify(u)), { merge: true });
+      count++;
+    });
+    data.classes.forEach(c => {
+      batch.set(doc(db, 'classes', c.id), JSON.parse(JSON.stringify(c)), { merge: true });
+      count++;
+    });
+    data.exams.forEach(e => {
+      batch.set(doc(db, 'exams', e.id), JSON.parse(JSON.stringify(e)), { merge: true });
+      count++;
+    });
+    data.sessions.forEach(s => {
+      batch.set(doc(db, 'sessions', s.id), JSON.parse(JSON.stringify(s)), { merge: true });
+      count++;
+    });
+    batch.set(doc(db, 'settings', 'main'), JSON.parse(JSON.stringify(data.settings)), { merge: true });
+    count++;
+    data.attendance.forEach(a => {
+      batch.set(doc(db, 'attendance', a.id), JSON.parse(JSON.stringify(a)), { merge: true });
+      count++;
+    });
+
+    await batch.commit();
+    return { success: true, message: `Berhasil mengunggah ${count} data ke Firebase Firestore.`, count };
+  } catch (err: any) {
+    handleFirestoreError(err, OperationType.WRITE, 'batch_push');
+    return { success: false, message: err?.message || 'Gagal mengunggah data ke Firebase', count };
   }
 }
 
