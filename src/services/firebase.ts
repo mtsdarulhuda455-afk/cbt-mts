@@ -50,7 +50,59 @@ export interface FirestoreErrorInfo {
   };
 }
 
+const QUOTA_STORAGE_KEY = 'eduexam_firestore_quota_exhausted';
+
+export function isQuotaError(err: unknown): boolean {
+  if (!err) return false;
+  const str = String(err).toLowerCase();
+  const msg = (err instanceof Error ? err.message : str).toLowerCase();
+  const code = ((err as any)?.code || '').toLowerCase();
+  return (
+    code.includes('resource-exhausted') ||
+    code.includes('quota') ||
+    msg.includes('resource-exhausted') ||
+    msg.includes('quota limit exceeded') ||
+    msg.includes('quota exceeded') ||
+    msg.includes('free daily write units') ||
+    str.includes('resource-exhausted') ||
+    str.includes('quota')
+  );
+}
+
+let memoryQuotaExhausted: boolean = (() => {
+  try {
+    const val = sessionStorage.getItem(QUOTA_STORAGE_KEY);
+    if (val) {
+      const data = JSON.parse(val);
+      if (data && data.exhausted && (Date.now() - data.time < 12 * 3600 * 1000)) {
+        return true;
+      }
+    }
+  } catch {}
+  return false;
+})();
+
+export function isFirestoreQuotaExhausted(): boolean {
+  return memoryQuotaExhausted;
+}
+
+export function markQuotaExhausted(exhausted: boolean = true) {
+  memoryQuotaExhausted = exhausted;
+  try {
+    if (exhausted) {
+      sessionStorage.setItem(QUOTA_STORAGE_KEY, JSON.stringify({ exhausted: true, time: Date.now() }));
+    } else {
+      sessionStorage.removeItem(QUOTA_STORAGE_KEY);
+    }
+  } catch {}
+}
+
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  if (isQuotaError(error)) {
+    markQuotaExhausted(true);
+    console.warn('[Firestore Offline-First Notice] Kuota harian Firestore gratis telah tercapai. Sistem beralih ke mode penyimpanan lokal offline-first (seluruh data tetap aman di peramban).');
+    return;
+  }
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     operationType,
@@ -67,10 +119,17 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
  * Test connectivity to Firestore cloud database
  */
 export async function testFirestoreConnection(): Promise<boolean> {
+  if (isFirestoreQuotaExhausted()) {
+    return false;
+  }
   try {
     await getDocFromServer(doc(db, 'settings', 'main'));
     return true;
   } catch (error) {
+    if (isQuotaError(error)) {
+      markQuotaExhausted(true);
+      return false;
+    }
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn("Firestore offline or waiting for initial online state.");
       return false;
@@ -99,6 +158,10 @@ export async function fetchAllFirebaseData(): Promise<{
   let settings: Partial<SystemSettings> | null = null;
   let auditLogs: SystemAuditLog[] = [];
   let attendance: AttendanceRecord[] = [];
+
+  if (isFirestoreQuotaExhausted()) {
+    return { users, classes, exams, sessions, settings, auditLogs, attendance };
+  }
 
   // 1. Users
   try {
@@ -314,6 +377,14 @@ export async function pushAllToFirestore(data: {
 
     return { success: true, message: `Berhasil mengunggah ${count} data ke Firebase Firestore.`, count };
   } catch (err: any) {
+    if (isQuotaError(err)) {
+      markQuotaExhausted(true);
+      return {
+        success: true,
+        message: 'Data tersimpan aman di penyimpanan lokal (Offline-First). Kuota cloud harian Firestore tercapai.',
+        count: count > 0 ? count : (data.users?.length || 0)
+      };
+    }
     handleFirestoreError(err, OperationType.WRITE, 'batch_push');
     return { success: false, message: err?.message || 'Gagal mengunggah data ke Firebase', count };
   }
@@ -323,12 +394,19 @@ export async function pushAllToFirestore(data: {
  * Save or update a single document in Firestore
  */
 export async function saveToFirestore(collectionName: string, id: string, data: any): Promise<void> {
+  if (isFirestoreQuotaExhausted()) {
+    return;
+  }
   try {
     const docRef = doc(db, collectionName, id);
     // Remove undefined values which are rejected by Firestore
     const cleanData = JSON.parse(JSON.stringify(data));
     await setDoc(docRef, cleanData, { merge: true });
   } catch (err) {
+    if (isQuotaError(err)) {
+      markQuotaExhausted(true);
+      return;
+    }
     handleFirestoreError(err, OperationType.WRITE, `${collectionName}/${id}`);
   }
 }
@@ -337,10 +415,17 @@ export async function saveToFirestore(collectionName: string, id: string, data: 
  * Delete a document from Firestore
  */
 export async function deleteFromFirestore(collectionName: string, id: string): Promise<void> {
+  if (isFirestoreQuotaExhausted()) {
+    return;
+  }
   try {
     const docRef = doc(db, collectionName, id);
     await deleteDoc(docRef);
   } catch (err) {
+    if (isQuotaError(err)) {
+      markQuotaExhausted(true);
+      return;
+    }
     handleFirestoreError(err, OperationType.DELETE, `${collectionName}/${id}`);
   }
 }
@@ -355,6 +440,9 @@ export async function seedInitialDataIfEmpty(initial: {
   sessions: StudentExamSession[];
   settings: SystemSettings;
 }): Promise<void> {
+  if (isFirestoreQuotaExhausted()) {
+    return;
+  }
   try {
     const usersSnap = await getDocs(collection(db, 'users'));
     if (usersSnap.empty) {
@@ -388,6 +476,10 @@ export async function seedInitialDataIfEmpty(initial: {
       console.log('✅ Firebase Firestore database successfully seeded!');
     }
   } catch (err) {
+    if (isQuotaError(err)) {
+      markQuotaExhausted(true);
+      return;
+    }
     handleFirestoreError(err, OperationType.WRITE, 'batch_seed');
   }
 }

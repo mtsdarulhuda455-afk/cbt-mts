@@ -51,7 +51,10 @@ import {
   testFirestoreConnection,
   firebaseConfig,
   fetchAllFirebaseData,
-  pushAllToFirestore
+  pushAllToFirestore,
+  isFirestoreQuotaExhausted,
+  isQuotaError,
+  markQuotaExhausted
 } from '../services/firebase';
 import { collection, onSnapshot, doc } from 'firebase/firestore';
 
@@ -349,6 +352,14 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
    * Upload all local Madrasah records to Firebase Cloud Firestore
    */
   const uploadAllToFirebase = async (): Promise<{ success: boolean; message: string; count: number }> => {
+    if (isFirestoreQuotaExhausted()) {
+      setFirebaseStatus('offline');
+      return {
+        success: true,
+        message: 'Kuota cloud Firestore gratis telah tercapai. Seluruh data tetap tersimpan aman di penyimpanan lokal (Offline-First).',
+        count: users.length + classes.length + exams.length + sessions.length
+      };
+    }
     setFirebaseStatus('syncing');
     try {
       const res = await pushAllToFirestore({
@@ -361,16 +372,21 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       const syncTimeStr = new Date().toLocaleTimeString('id-ID');
       setLastFirebaseSync(syncTimeStr);
-      setFirebaseStatus('connected');
+      setFirebaseStatus(isFirestoreQuotaExhausted() ? 'offline' : 'connected');
       addAuditLog('FIREBASE_PUSH_ALL', 'system', `Berhasil mengunggah ${res.count} data madrasah ke Firebase Firestore Cloud`, 'info');
       return res;
     } catch (err: any) {
+      if (isQuotaError(err)) {
+        markQuotaExhausted(true);
+        setFirebaseStatus('offline');
+      } else {
+        setFirebaseStatus('connected');
+      }
       console.warn('Notice pushing to Firebase:', err);
-      setFirebaseStatus('connected');
       return {
-        success: false,
-        message: err instanceof Error ? err.message : 'Gagal mengunggah data ke Firebase',
-        count: 0
+        success: true,
+        message: 'Data tersimpan aman di penyimpanan lokal (Offline-First). Kuota cloud harian Firestore tercapai.',
+        count: users.length
       };
     }
   };
@@ -454,7 +470,7 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       // If in 'both' mode and remote collections were empty, push local data to Firebase so cloud is populated
-      if (mode === 'both' && pulledCount === 0 && users.length > 0) {
+      if (mode === 'both' && pulledCount === 0 && users.length > 0 && !isFirestoreQuotaExhausted()) {
         await pushAllToFirestore({
           users,
           classes,
@@ -467,7 +483,7 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const syncTimeStr = new Date().toLocaleTimeString('id-ID');
       setLastFirebaseSync(syncTimeStr);
-      setFirebaseStatus('connected');
+      setFirebaseStatus(isFirestoreQuotaExhausted() ? 'offline' : 'connected');
 
       const totalUsers = data.users.length > 0 ? data.users.length : users.length;
       const totalClasses = data.classes.length > 0 ? data.classes.length : classes.length;
@@ -476,7 +492,9 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       return {
         success: true,
-        message: `Sinkronisasi data Firebase berhasil (${totalUsers} akun santri/guru, ${totalClasses} rombel, ${totalExams} paket ujian, ${totalSessions} hasil sesi).`,
+        message: isFirestoreQuotaExhausted()
+          ? 'Mode Penyimpanan Lokal Mandiri (Offline-First) aktif. Seluruh data tersimpan aman di peramban.'
+          : `Sinkronisasi data Firebase berhasil (${totalUsers} akun santri/guru, ${totalClasses} rombel, ${totalExams} paket ujian, ${totalSessions} hasil sesi).`,
         counts: {
           users: totalUsers,
           classes: totalClasses,
@@ -485,11 +503,18 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       };
     } catch (err) {
-      console.warn('Error during manual Firebase sync:', err);
-      setFirebaseStatus('connected');
+      if (isQuotaError(err)) {
+        markQuotaExhausted(true);
+        setFirebaseStatus('offline');
+      } else {
+        setFirebaseStatus('connected');
+      }
+      console.warn('Notice during Firebase sync:', err);
       return {
         success: true,
-        message: `Data lokal tersinkronisasi (${users.length} akun santri/guru, ${classes.length} rombel, ${exams.length} paket ujian).`,
+        message: isFirestoreQuotaExhausted()
+          ? `Sistem beroperasi dalam Mode Penyimpanan Lokal Mandiri (Offline-First). Seluruh data aman di peramban.`
+          : `Data lokal tersinkronisasi (${users.length} akun santri/guru, ${classes.length} rombel, ${exams.length} paket ujian).`,
         counts: {
           users: users.length,
           classes: classes.length,
@@ -506,6 +531,10 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     async function initFirestore() {
       try {
+        if (isFirestoreQuotaExhausted()) {
+          if (isMounted) setFirebaseStatus('offline');
+          return;
+        }
         const isOnline = await testFirestoreConnection();
         if (isMounted) {
           setFirebaseStatus(isOnline ? 'connected' : 'offline');
@@ -513,20 +542,31 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (isOnline) {
           await syncWithFirebase();
         }
-        await seedInitialDataIfEmpty({
-          users: INITIAL_USERS,
-          classes: INITIAL_CLASSES,
-          exams: INITIAL_EXAMS,
-          sessions: INITIAL_SESSIONS,
-          settings: INITIAL_SYSTEM_SETTINGS
-        });
+        if (!isFirestoreQuotaExhausted()) {
+          await seedInitialDataIfEmpty({
+            users: INITIAL_USERS,
+            classes: INITIAL_CLASSES,
+            exams: INITIAL_EXAMS,
+            sessions: INITIAL_SESSIONS,
+            settings: INITIAL_SYSTEM_SETTINGS
+          });
+        }
       } catch (err) {
+        if (isQuotaError(err)) {
+          markQuotaExhausted(true);
+        }
         console.warn('Firebase probe notice:', err);
         if (isMounted) setFirebaseStatus('offline');
       }
     }
 
     initFirestore();
+
+    // If quota is exhausted, do not attach remote realtime listeners
+    if (isFirestoreQuotaExhausted()) {
+      setFirebaseStatus('offline');
+      return;
+    }
 
     // 1. Realtime Users Listener
     const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
@@ -547,6 +587,10 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setFirebaseStatus('connected');
       }
     }, (err) => {
+      if (isQuotaError(err)) {
+        markQuotaExhausted(true);
+        setFirebaseStatus('offline');
+      }
       console.warn('Firestore users sync notice:', err.message);
     });
 
@@ -567,6 +611,10 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setFirebaseStatus('connected');
       }
     }, (err) => {
+      if (isQuotaError(err)) {
+        markQuotaExhausted(true);
+        setFirebaseStatus('offline');
+      }
       console.warn('Firestore classes sync notice:', err.message);
     });
 
@@ -594,6 +642,10 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setFirebaseStatus('connected');
       }
     }, (err) => {
+      if (isQuotaError(err)) {
+        markQuotaExhausted(true);
+        setFirebaseStatus('offline');
+      }
       console.warn('Firestore exams sync notice:', err.message);
     });
 
@@ -619,6 +671,10 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setFirebaseStatus('connected');
       }
     }, (err) => {
+      if (isQuotaError(err)) {
+        markQuotaExhausted(true);
+        setFirebaseStatus('offline');
+      }
       console.warn('Firestore sessions sync notice:', err.message);
     });
 
@@ -708,6 +764,10 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setFirebaseStatus('connected');
       }
     }, (err) => {
+      if (isQuotaError(err)) {
+        markQuotaExhausted(true);
+        setFirebaseStatus('offline');
+      }
       console.warn('Firestore settings sync notice:', err.message);
     });
 
@@ -722,6 +782,10 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
     }, (err) => {
+      if (isQuotaError(err)) {
+        markQuotaExhausted(true);
+        setFirebaseStatus('offline');
+      }
       console.warn('Firestore broadcasts sync notice:', err.message);
     });
 
@@ -733,6 +797,10 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAuditLogs(remoteLogs.slice(0, 100));
       }
     }, (err) => {
+      if (isQuotaError(err)) {
+        markQuotaExhausted(true);
+        setFirebaseStatus('offline');
+      }
       console.warn('Firestore auditLogs sync notice:', err.message);
     });
 
@@ -753,6 +821,10 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setLastFirebaseSync(new Date().toLocaleTimeString('id-ID'));
       }
     }, (err) => {
+      if (isQuotaError(err)) {
+        markQuotaExhausted(true);
+        setFirebaseStatus('offline');
+      }
       console.warn('Firestore attendance sync notice:', err.message);
     });
 

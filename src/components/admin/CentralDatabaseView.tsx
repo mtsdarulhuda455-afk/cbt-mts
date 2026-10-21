@@ -626,9 +626,23 @@ export const CentralDatabaseView: React.FC = () => {
                 <span className="text-sm font-black uppercase tracking-wider text-emerald-300">
                   Sinkronisasi Database Firebase Firestore
                 </span>
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span>{firebaseStatus === 'connected' ? 'Cloud Firestore Terhubung' : 'Sedang Sinkronisasi'}</span>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                  firebaseStatus === 'connected' 
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30' 
+                    : firebaseStatus === 'syncing'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
+                    : 'bg-indigo-500/20 text-indigo-300 border border-indigo-400/30'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${
+                    firebaseStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : firebaseStatus === 'syncing' ? 'bg-amber-400 animate-ping' : 'bg-indigo-400'
+                  }`}></span>
+                  <span>{
+                    firebaseStatus === 'connected' 
+                      ? 'Cloud Firestore Terhubung' 
+                      : firebaseStatus === 'syncing' 
+                      ? 'Sedang Sinkronisasi' 
+                      : 'Penyimpanan Lokal Mandiri (Offline-First)'
+                  }</span>
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-1">
