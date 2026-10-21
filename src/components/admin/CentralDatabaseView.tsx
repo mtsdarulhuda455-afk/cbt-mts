@@ -49,6 +49,7 @@ export const CentralDatabaseView: React.FC = () => {
     exams, 
     classes, 
     systemSettings,
+    attendanceRecords,
     exportDatabaseJson, 
     importDatabaseJson, 
     resetToFactoryData,
@@ -67,6 +68,19 @@ export const CentralDatabaseView: React.FC = () => {
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [classFilter, setClassFilter] = useState<string>('all');
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [restoreModalData, setRestoreModalData] = useState<{
+    isOpen: boolean;
+    success: boolean;
+    message: string;
+    counts?: {
+      users: number;
+      classes: number;
+      exams: number;
+      sessions: number;
+      attendance: number;
+      auditLogs: number;
+    };
+  } | null>(null);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -419,13 +433,27 @@ export const CentralDatabaseView: React.FC = () => {
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = event.target?.result as string;
-      const success = importDatabaseJson(content);
-      if (success) {
-        setImportStatus('Basis data CBT berhasil dipulihkan dari file JSON!');
+      const res = importDatabaseJson(content);
+      const isSuccess = typeof res === 'boolean' ? res : res.success;
+      if (isSuccess) {
+        const msg = typeof res === 'object' ? res.message : 'Basis data CBT berhasil dipulihkan dari file JSON!';
+        setImportStatus(msg);
+        setRestoreModalData({
+          isOpen: true,
+          success: true,
+          message: msg,
+          counts: typeof res === 'object' ? res.counts : undefined
+        });
       } else {
-        setImportStatus('Gagal memulihkan: Format file JSON tidak valid.');
+        const errorMsg = typeof res === 'object' ? res.message : 'Gagal memulihkan: Format file JSON tidak valid.';
+        setImportStatus(errorMsg);
+        setRestoreModalData({
+          isOpen: true,
+          success: false,
+          message: errorMsg
+        });
       }
-      setTimeout(() => setImportStatus(null), 4000);
+      setTimeout(() => setImportStatus(null), 8000);
     };
     reader.readAsText(file);
     if (e.target) e.target.value = '';
@@ -469,10 +497,11 @@ export const CentralDatabaseView: React.FC = () => {
           {/* Backup Database JSON */}
           <button
             onClick={exportDatabaseJson}
-            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition"
+            title="Simpan seluruh database CBT (akun santri, guru, ujian, sesi, presensi, pengaturan) ke dalam 1 file JSON lengkap"
+            className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-xs cursor-pointer transition"
           >
             <Download className="w-4 h-4" />
-            Cadangkan DB (JSON)
+            <span>Cadangkan Database (1 File JSON)</span>
           </button>
 
           {/* Restore Database Button */}
@@ -485,10 +514,11 @@ export const CentralDatabaseView: React.FC = () => {
           />
           <button
             onClick={() => jsonBackupInputRef.current?.click()}
-            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition"
+            title="Pulihkan seluruh basis data dari 1 file JSON cadangan tanpa kehilangan data"
+            className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center gap-2 cursor-pointer transition shadow-xs"
           >
-            <Upload className="w-4 h-4" />
-            Pulihkan DB
+            <Upload className="w-4 h-4 text-emerald-400" />
+            <span>Pulihkan / Restore DB</span>
           </button>
 
           {/* Reset Factory */}
@@ -512,6 +542,77 @@ export const CentralDatabaseView: React.FC = () => {
           <span>{importStatus}</span>
         </div>
       )}
+
+      {/* Kartu Khusus Cadangan Database 1 File & Keamanan Pemulihan */}
+      <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-3xl border border-indigo-500/30 text-white shadow-xl space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start sm:items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300 shrink-0 shadow-inner">
+              <HardDrive className="w-6 h-6 text-indigo-400" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-black uppercase tracking-wider text-indigo-200">
+                  Pencadangan Basis Data Mandiri (1 File JSON Lengkap)
+                </span>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
+                  <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                  <span>Garansi Data Aman 100%</span>
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                Saat Anda mengklik tombol <strong>Cadangkan Database</strong>, semua basis data madrasah (akun santri & guru, rombel/kelas, paket soal ujian, riwayat jawaban santri, presensi barcode, dan pengaturan CBT) disimpan ke dalam <strong>1 file cadangan tunggal</strong>. Saat dipulihkan, seluruh data dijamin utuh dan langsung disinkronkan kembali.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              onClick={exportDatabaseJson}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg cursor-pointer transition"
+            >
+              <Download className="w-4 h-4" />
+              <span>Cadangkan Sekarang</span>
+            </button>
+            <button
+              onClick={() => jsonBackupInputRef.current?.click()}
+              className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold rounded-xl text-xs flex items-center gap-2 cursor-pointer transition"
+            >
+              <Upload className="w-4 h-4 text-emerald-400" />
+              <span>Pulihkan dari File</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Status Data Yang Terlindungi */}
+        <div className="pt-3 border-t border-white/10 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-slate-300">
+          <span className="text-indigo-300 font-bold">Cakupan Data Terpadu:</span>
+          <span className="inline-flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-lg">
+            <Users className="w-3.5 h-3.5 text-emerald-400" />
+            <span>{users.length} Akun Santri/Guru</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-lg">
+            <School className="w-3.5 h-3.5 text-blue-400" />
+            <span>{classes.length} Rombel/Kelas</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-lg">
+            <FileSpreadsheet className="w-3.5 h-3.5 text-amber-400" />
+            <span>{exams.length} Paket Ujian</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-lg">
+            <CheckCircle2 className="w-3.5 h-3.5 text-teal-400" />
+            <span>{sessions.length} Sesi Jawaban</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-lg">
+            <Barcode className="w-3.5 h-3.5 text-purple-400" />
+            <span>{attendanceRecords?.length || 0} Presensi</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-lg">
+            <History className="w-3.5 h-3.5 text-rose-400" />
+            <span>{auditLogs.length} Audit Log</span>
+          </span>
+        </div>
+      </div>
 
       {/* Firebase Cloud Live Banner & Sync Controls */}
       <div className="p-5 bg-gradient-to-r from-emerald-950 via-slate-900 to-teal-950 rounded-3xl border border-emerald-500/30 text-white shadow-xl space-y-3">
@@ -1432,6 +1533,100 @@ export const CentralDatabaseView: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Pemulihan Database Lengkap */}
+      {restoreModalData?.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-5 animate-in zoom-in-95">
+            <div className="flex items-center gap-3.5">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                restoreModalData.success 
+                  ? 'bg-emerald-100 text-emerald-700' 
+                  : 'bg-rose-100 text-rose-700'
+              }`}>
+                {restoreModalData.success ? <ShieldCheck className="w-6 h-6" /> : <AlertTriangle className="w-6 h-6" />}
+              </div>
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-base">
+                  {restoreModalData.success ? 'Pemulihan Basis Data Selesai & Seluruh Data Aman' : 'Gagal Memulihkan Basis Data'}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {restoreModalData.success ? 'Seluruh database telah dipulihkan dan tersinkronisasi sempurna' : 'Periksa kembali integritas file cadangan JSON'}
+                </p>
+              </div>
+            </div>
+
+            <div className={`p-4 rounded-2xl border text-xs leading-relaxed ${
+              restoreModalData.success
+                ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
+                : 'bg-rose-50 border-rose-200 text-rose-800'
+            }`}>
+              {restoreModalData.message}
+            </div>
+
+            {restoreModalData.success && (
+              <div className="space-y-3">
+                <div className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                  Rincian Data yang Berhasil Dipulihkan & Aman:
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px]">Akun Santri & Guru</span>
+                    <strong className="text-slate-800 text-sm font-black">
+                      {restoreModalData.counts?.users ?? users.length}
+                    </strong> Akun
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px]">Rombel / Kelas</span>
+                    <strong className="text-slate-800 text-sm font-black">
+                      {restoreModalData.counts?.classes ?? classes.length}
+                    </strong> Rombel
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px]">Paket Soal Ujian</span>
+                    <strong className="text-slate-800 text-sm font-black">
+                      {restoreModalData.counts?.exams ?? exams.length}
+                    </strong> Paket
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px]">Sesi & Lembar Jawaban</span>
+                    <strong className="text-slate-800 text-sm font-black">
+                      {restoreModalData.counts?.sessions ?? sessions.length}
+                    </strong> Sesi
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px]">Presensi Barcode</span>
+                    <strong className="text-slate-800 text-sm font-black">
+                      {restoreModalData.counts?.attendance ?? attendanceRecords?.length ?? 0}
+                    </strong> Catatan
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px]">Riwayat Audit & Log</span>
+                    <strong className="text-slate-800 text-sm font-black">
+                      {restoreModalData.counts?.auditLogs ?? auditLogs.length}
+                    </strong> Log
+                  </div>
+                </div>
+
+                <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-900 text-[11px] flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span>Pengaturan sistem, konfigurasi anti-cheat, WhatsApp, dan token ujian dipulihkan dengan aman.</span>
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setRestoreModalData(null)}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs cursor-pointer transition"
+              >
+                Tutup & Lanjutkan
+              </button>
+            </div>
           </div>
         </div>
       )}

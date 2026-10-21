@@ -254,40 +254,64 @@ export async function fetchAllFirebaseData(): Promise<{
  * Push all local data to Firestore Cloud Database
  */
 export async function pushAllToFirestore(data: {
-  users: User[];
-  classes: ClassGroup[];
-  exams: Exam[];
-  sessions: StudentExamSession[];
-  settings: SystemSettings;
-  attendance: AttendanceRecord[];
+  users?: User[];
+  classes?: ClassGroup[];
+  exams?: Exam[];
+  sessions?: StudentExamSession[];
+  settings?: SystemSettings;
+  attendance?: AttendanceRecord[];
+  auditLogs?: SystemAuditLog[];
+  attendanceSettings?: any;
+  apiConfig?: any;
 }): Promise<{ success: boolean; message: string; count: number }> {
   let count = 0;
   try {
-    const batch = writeBatch(db);
-    data.users.forEach(u => {
-      batch.set(doc(db, 'users', u.id), JSON.parse(JSON.stringify(u)), { merge: true });
-      count++;
-    });
-    data.classes.forEach(c => {
-      batch.set(doc(db, 'classes', c.id), JSON.parse(JSON.stringify(c)), { merge: true });
-      count++;
-    });
-    data.exams.forEach(e => {
-      batch.set(doc(db, 'exams', e.id), JSON.parse(JSON.stringify(e)), { merge: true });
-      count++;
-    });
-    data.sessions.forEach(s => {
-      batch.set(doc(db, 'sessions', s.id), JSON.parse(JSON.stringify(s)), { merge: true });
-      count++;
-    });
-    batch.set(doc(db, 'settings', 'main'), JSON.parse(JSON.stringify(data.settings)), { merge: true });
-    count++;
-    data.attendance.forEach(a => {
-      batch.set(doc(db, 'attendance', a.id), JSON.parse(JSON.stringify(a)), { merge: true });
-      count++;
-    });
+    interface WriteOp {
+      coll: string;
+      id: string;
+      data: any;
+    }
+    const ops: WriteOp[] = [];
 
-    await batch.commit();
+    if (data.users && Array.isArray(data.users)) {
+      data.users.forEach(u => ops.push({ coll: 'users', id: u.id, data: u }));
+    }
+    if (data.classes && Array.isArray(data.classes)) {
+      data.classes.forEach(c => ops.push({ coll: 'classes', id: c.id, data: c }));
+    }
+    if (data.exams && Array.isArray(data.exams)) {
+      data.exams.forEach(e => ops.push({ coll: 'exams', id: e.id, data: e }));
+    }
+    if (data.sessions && Array.isArray(data.sessions)) {
+      data.sessions.forEach(s => ops.push({ coll: 'sessions', id: s.id, data: s }));
+    }
+    if (data.settings) {
+      ops.push({ coll: 'settings', id: 'main', data: data.settings });
+    }
+    if (data.attendance && Array.isArray(data.attendance)) {
+      data.attendance.forEach(a => ops.push({ coll: 'attendance', id: a.id, data: a }));
+    }
+    if (data.auditLogs && Array.isArray(data.auditLogs)) {
+      data.auditLogs.slice(-150).forEach(l => ops.push({ coll: 'auditLogs', id: l.id, data: l }));
+    }
+    if (data.attendanceSettings) {
+      ops.push({ coll: 'attendanceSettings', id: 'main', data: data.attendanceSettings });
+    }
+    if (data.apiConfig) {
+      ops.push({ coll: 'apiConfig', id: 'main', data: data.apiConfig });
+    }
+
+    // Commit in safe chunks of 400 (Firestore writeBatch limit is 500)
+    for (let i = 0; i < ops.length; i += 400) {
+      const batch = writeBatch(db);
+      const chunk = ops.slice(i, i + 400);
+      chunk.forEach(op => {
+        batch.set(doc(db, op.coll, op.id), JSON.parse(JSON.stringify(op.data)), { merge: true });
+        count++;
+      });
+      await batch.commit();
+    }
+
     return { success: true, message: `Berhasil mengunggah ${count} data ke Firebase Firestore.`, count };
   } catch (err: any) {
     handleFirestoreError(err, OperationType.WRITE, 'batch_push');

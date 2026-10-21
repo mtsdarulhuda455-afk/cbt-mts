@@ -124,7 +124,18 @@ interface CbtContextType {
   latestBroadcast: string | null;
   clearLatestBroadcast: () => void;
   exportDatabaseJson: () => void;
-  importDatabaseJson: (jsonData: string) => boolean;
+  importDatabaseJson: (jsonData: string) => {
+    success: boolean;
+    message: string;
+    counts?: {
+      users: number;
+      classes: number;
+      exams: number;
+      sessions: number;
+      attendance: number;
+      auditLogs: number;
+    };
+  };
   resetToFactoryData: () => void;
 
   // Presensi Barcode Masuk & Pulang & Notifikasi WhatsApp MTs. Darul Huda
@@ -835,6 +846,23 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 lastCameraUpdate: payload.timestamp || Date.now()
               };
             }));
+          } else if (type === 'DATABASE_RESTORED') {
+            const savedUsers = localStorage.getItem(`${STORAGE_KEY_PREFIX}users`);
+            if (savedUsers) { try { setUsers(JSON.parse(savedUsers)); } catch {} }
+            const savedClasses = localStorage.getItem(`${STORAGE_KEY_PREFIX}classes`);
+            if (savedClasses) { try { setClasses(JSON.parse(savedClasses)); } catch {} }
+            const savedExams = localStorage.getItem(`${STORAGE_KEY_PREFIX}exams`);
+            if (savedExams) { try { setExams(JSON.parse(savedExams)); } catch {} }
+            const savedSessions = localStorage.getItem(`${STORAGE_KEY_PREFIX}sessions`);
+            if (savedSessions) { try { setSessions(JSON.parse(savedSessions)); } catch {} }
+            const savedSettings = localStorage.getItem(`${STORAGE_KEY_PREFIX}settings`);
+            if (savedSettings) { try { setSystemSettings(JSON.parse(savedSettings)); } catch {} }
+            const savedAttendance = localStorage.getItem(`${STORAGE_KEY_PREFIX}attendance`);
+            if (savedAttendance) { try { setAttendanceRecords(JSON.parse(savedAttendance)); } catch {} }
+            const savedAttendanceSettings = localStorage.getItem(`${STORAGE_KEY_PREFIX}attendance_settings`);
+            if (savedAttendanceSettings) { try { setAttendanceSettings(JSON.parse(savedAttendanceSettings)); } catch {} }
+            const savedLogs = localStorage.getItem(`${STORAGE_KEY_PREFIX}audit_logs`);
+            if (savedLogs) { try { setAuditLogs(JSON.parse(savedLogs)); } catch {} }
           }
         };
       }
@@ -852,9 +880,21 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } else if (e.key === `${STORAGE_KEY_PREFIX}classes`) {
           const parsed = JSON.parse(e.newValue);
           if (Array.isArray(parsed)) setClasses(parsed);
+        } else if (e.key === `${STORAGE_KEY_PREFIX}users`) {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) setUsers(parsed);
         } else if (e.key === `${STORAGE_KEY_PREFIX}settings`) {
           const parsed = JSON.parse(e.newValue);
           if (parsed) setSystemSettings(parsed);
+        } else if (e.key === `${STORAGE_KEY_PREFIX}attendance`) {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) setAttendanceRecords(parsed);
+        } else if (e.key === `${STORAGE_KEY_PREFIX}attendance_settings`) {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed) setAttendanceSettings(parsed);
+        } else if (e.key === `${STORAGE_KEY_PREFIX}audit_logs`) {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) setAuditLogs(parsed);
         }
       } catch { /* ignore */ }
     };
@@ -1425,46 +1465,269 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const exportDatabaseJson = () => {
+    const timestamp = new Date().toISOString();
+    const dateFormatted = new Date().toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+
+    // Complete unified backup package containing all databases & configurations
     const payload = {
-      exportedAt: new Date().toISOString(),
-      school: apiConfig.schoolName,
+      backupVersion: '2.0',
+      app: 'EduExam CBT MTs. Darul Huda',
+      format: 'eduexam_cbt_unified_backup_v2',
+      exportedAt: timestamp,
+      school: systemSettings?.schoolName || apiConfig?.schoolName || 'MTs. Darul Huda',
+      meta: {
+        exportedAt: timestamp,
+        formattedDate: dateFormatted,
+        exportedBy: currentUser ? `${currentUser.name} (${currentUser.role})` : 'Administrator CBT',
+        schoolName: systemSettings?.schoolName || 'MTs. Darul Huda',
+        totalRecords: users.length + classes.length + exams.length + sessions.length + attendanceRecords.length + auditLogs.length,
+        counts: {
+          users: users.length,
+          classes: classes.length,
+          exams: exams.length,
+          sessions: sessions.length,
+          attendanceRecords: attendanceRecords.length,
+          auditLogs: auditLogs.length,
+          systemSettings: 1,
+          attendanceSettings: 1,
+          apiConfig: 1,
+        }
+      },
+      // Encapsulated primary database container
+      database: {
+        users,
+        classes,
+        exams,
+        sessions,
+        auditLogs,
+        attendanceRecords,
+        attendanceSettings,
+        systemSettings,
+        apiConfig,
+      },
+      // Root-level mirrors for universal backward compatibility
+      users,
       classes,
       exams,
       sessions,
       auditLogs,
+      attendance: attendanceRecords,
+      attendanceRecords,
+      systemSettings,
+      settings: systemSettings,
+      attendanceSettings,
       apiConfig,
     };
+
+    const fileName = `cbt-database-backup-${new Date().toISOString().split('T')[0]}.json`;
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `cbt-database-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = fileName;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    addAuditLog('BACKUP_DATABASE', 'system', 'Mengunduh salinan cadangan basis data terpusat (JSON)', 'info');
+
+    addAuditLog(
+      'BACKUP_DATABASE',
+      'system',
+      `Mencadangkan seluruh database CBT (${users.length} akun santri/guru, ${classes.length} rombel, ${exams.length} paket ujian, ${sessions.length} sesi, ${attendanceRecords.length} presensi) ke file ${fileName}`,
+      'info'
+    );
   };
 
-  const importDatabaseJson = (jsonData: string): boolean => {
+  const importDatabaseJson = (jsonData: string): {
+    success: boolean;
+    message: string;
+    counts?: {
+      users: number;
+      classes: number;
+      exams: number;
+      sessions: number;
+      attendance: number;
+      auditLogs: number;
+    };
+  } => {
     try {
       const parsed = JSON.parse(jsonData);
-      if (parsed.exams && parsed.sessions) {
-        setExams(parsed.exams);
-        setSessions(parsed.sessions);
-        if (parsed.classes) setClasses(parsed.classes);
-        if (parsed.auditLogs) setAuditLogs(parsed.auditLogs);
-        if (parsed.apiConfig) setApiConfig(parsed.apiConfig);
-        
-        // Sync imported data to Firestore
-        if (parsed.classes) parsed.classes.forEach((c: any) => saveToFirestore('classes', c.id, c));
-        parsed.exams.forEach((e: any) => saveToFirestore('exams', e.id, e));
-        parsed.sessions.forEach((s: any) => saveToFirestore('sessions', s.id, s));
-        
-        addAuditLog('RESTORE_DATABASE', 'system', 'Berhasil memulihkan basis data dari file JSON cadangan', 'warn');
-        return true;
+      if (!parsed || typeof parsed !== 'object') {
+        return { success: false, message: 'Format file tidak valid (file JSON kosong atau tidak terstruktur).' };
       }
-      return false;
-    } catch {
-      return false;
+
+      const src = (parsed.database && typeof parsed.database === 'object') ? parsed.database : parsed;
+
+      // Extract collections safely with fallbacks
+      const importedUsers: User[] = Array.isArray(src.users) ? src.users : (Array.isArray(parsed.users) ? parsed.users : []);
+      const importedClasses: ClassGroup[] = Array.isArray(src.classes) ? src.classes : (Array.isArray(parsed.classes) ? parsed.classes : []);
+      const importedExams: Exam[] = Array.isArray(src.exams) ? src.exams : (Array.isArray(parsed.exams) ? parsed.exams : []);
+      const importedSessions: StudentExamSession[] = Array.isArray(src.sessions) ? src.sessions : (Array.isArray(parsed.sessions) ? parsed.sessions : []);
+      const importedAuditLogs: SystemAuditLog[] = Array.isArray(src.auditLogs) ? src.auditLogs : (Array.isArray(parsed.auditLogs) ? parsed.auditLogs : []);
+      
+      const rawAttendance = src.attendanceRecords || src.attendance || parsed.attendanceRecords || parsed.attendance;
+      const importedAttendance: AttendanceRecord[] = Array.isArray(rawAttendance) ? rawAttendance : [];
+
+      const importedSettings: SystemSettings | null = src.systemSettings || src.settings || parsed.systemSettings || parsed.settings || null;
+      const importedAttendanceSettings: AttendanceSettings | null = src.attendanceSettings || parsed.attendanceSettings || null;
+      const importedApiConfig: AcademicApiConfig | null = src.apiConfig || parsed.apiConfig || null;
+
+      // Validate core data presence
+      const hasCoreData = 
+        importedUsers.length > 0 || 
+        importedExams.length > 0 || 
+        importedClasses.length > 0 || 
+        importedSessions.length > 0 ||
+        importedAttendance.length > 0;
+
+      if (!hasCoreData) {
+        return {
+          success: false,
+          message: 'Gagal memulihkan: File JSON ini tidak berisi data basis data CBT EduExam (tidak ditemukan data pengguna, ujian, rombel, atau sesi).'
+        };
+      }
+
+      // 1. Restore Users safely
+      let activeUsers = users;
+      if (importedUsers.length > 0) {
+        activeUsers = importedUsers;
+        setUsers(importedUsers);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}users`, JSON.stringify(importedUsers));
+        
+        // Preserve current user login safely
+        if (currentUser) {
+          const matching = importedUsers.find(u => u.id === currentUser.id || u.username === currentUser.username);
+          if (matching) {
+            setCurrentUser(matching);
+            localStorage.setItem(`${STORAGE_KEY_PREFIX}user`, JSON.stringify(matching));
+          }
+        }
+      }
+
+      // 2. Restore Classes safely
+      let activeClasses = classes;
+      if (importedClasses.length > 0) {
+        activeClasses = importedClasses;
+        setClasses(importedClasses);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}classes`, JSON.stringify(importedClasses));
+      }
+
+      // 3. Restore Exams safely
+      let activeExams = exams;
+      if (importedExams.length > 0) {
+        activeExams = importedExams;
+        setExams(importedExams);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}exams`, JSON.stringify(importedExams));
+      }
+
+      // 4. Restore Sessions safely
+      let activeSessions = sessions;
+      if (importedSessions.length > 0) {
+        activeSessions = importedSessions;
+        setSessions(importedSessions);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}sessions`, JSON.stringify(importedSessions));
+      }
+
+      // 5. Restore Attendance Records safely
+      let activeAttendance = attendanceRecords;
+      if (importedAttendance.length > 0) {
+        activeAttendance = importedAttendance;
+        setAttendanceRecords(importedAttendance);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}attendance`, JSON.stringify(importedAttendance));
+      }
+
+      // 6. Restore Attendance Settings safely
+      let activeAttendanceSettings = attendanceSettings;
+      if (importedAttendanceSettings && typeof importedAttendanceSettings === 'object') {
+        activeAttendanceSettings = { ...attendanceSettings, ...importedAttendanceSettings };
+        setAttendanceSettings(activeAttendanceSettings);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}attendance_settings`, JSON.stringify(activeAttendanceSettings));
+      }
+
+      // 7. Restore System Settings safely
+      let activeSettings = systemSettings;
+      if (importedSettings && typeof importedSettings === 'object') {
+        activeSettings = { ...systemSettings, ...importedSettings };
+        setSystemSettings(activeSettings);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}settings`, JSON.stringify(activeSettings));
+      }
+
+      // 8. Restore API Config safely
+      let activeApiConfig = apiConfig;
+      if (importedApiConfig && typeof importedApiConfig === 'object') {
+        activeApiConfig = { ...apiConfig, ...importedApiConfig };
+        setApiConfig(activeApiConfig);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}api_config`, JSON.stringify(activeApiConfig));
+      }
+
+      // 9. Restore Audit Logs safely
+      let activeAuditLogs = auditLogs;
+      if (importedAuditLogs.length > 0) {
+        activeAuditLogs = importedAuditLogs;
+        setAuditLogs(importedAuditLogs);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}audit_logs`, JSON.stringify(importedAuditLogs));
+      }
+
+      // 10. Sync to Firestore in real-time
+      pushAllToFirestore({
+        users: activeUsers,
+        classes: activeClasses,
+        exams: activeExams,
+        sessions: activeSessions,
+        settings: activeSettings,
+        attendance: activeAttendance,
+        auditLogs: activeAuditLogs,
+        attendanceSettings: activeAttendanceSettings,
+        apiConfig: activeApiConfig,
+      }).then(() => {
+        setLastFirebaseSync(new Date().toLocaleTimeString('id-ID'));
+        setFirebaseStatus('connected');
+      }).catch(err => {
+        console.warn('Notice syncing restored database to Firebase:', err);
+      });
+
+      // 11. Broadcast update to other open browser tabs
+      try {
+        if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+          const bc = new BroadcastChannel('eduexam_cbt_channel');
+          bc.postMessage({
+            type: 'DATABASE_RESTORED',
+            timestamp: Date.now()
+          });
+          bc.close();
+        }
+      } catch { /* ignore */ }
+
+      // 12. Add system audit log
+      addAuditLog(
+        'RESTORE_DATABASE',
+        'system',
+        `Memulihkan basis data lengkap: ${activeUsers.length} pengguna, ${activeClasses.length} rombel, ${activeExams.length} ujian, ${activeSessions.length} lembar jawaban, ${activeAttendance.length} catatan presensi. Seluruh data aman!`,
+        'warn'
+      );
+
+      return {
+        success: true,
+        message: `Basis data CBT berhasil dipulihkan dan seluruh data aman! (${activeUsers.length} akun santri/guru, ${activeClasses.length} rombel, ${activeExams.length} paket ujian, ${activeSessions.length} lembar sesi, ${activeAttendance.length} presensi).`,
+        counts: {
+          users: activeUsers.length,
+          classes: activeClasses.length,
+          exams: activeExams.length,
+          sessions: activeSessions.length,
+          attendance: activeAttendance.length,
+          auditLogs: activeAuditLogs.length
+        }
+      };
+    } catch (err: any) {
+      console.error('Error restoring database:', err);
+      return {
+        success: false,
+        message: `Gagal memulihkan basis data: ${err?.message || 'Format JSON tidak valid atau file rusak'}`
+      };
     }
   };
 

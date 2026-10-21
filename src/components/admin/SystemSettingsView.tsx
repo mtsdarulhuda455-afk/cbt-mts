@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useCbt } from '../../context/CbtContext';
 import { 
   Building2, 
@@ -39,7 +39,10 @@ import {
   XCircle,
   Network,
   Radio,
-  Sliders
+  Sliders,
+  Download,
+  Upload,
+  ShieldCheck
 } from 'lucide-react';
 import { playAlertSound } from '../../services/cbtEngine';
 import { DatabaseProviderType, DatabaseStorageConfig, SystemSettings } from '../../types/cbt';
@@ -83,11 +86,18 @@ export const SystemSettingsView: React.FC = () => {
     exams, 
     sessions, 
     users,
+    classes,
+    attendanceRecords,
+    exportDatabaseJson,
+    importDatabaseJson,
     broadcastSystemUpdate,
     triggerAutoUpdate,
     checkForUpdates,
     isUpdateAvailable
   } = useCbt();
+
+  const jsonBackupInputRef = useRef<HTMLInputElement>(null);
+  const [backupRestoreStatus, setBackupRestoreStatus] = useState<string | null>(null);
 
   // Local form state with safe databaseStorage fallback
   const [formData, setFormData] = useState<SystemSettings>(() => ({
@@ -1713,6 +1723,104 @@ export const SystemSettingsView: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {/* Pencadangan & Pemulihan Basis Data (1 File JSON Lengkap) */}
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 sm:p-8 border border-indigo-500/30 text-white shadow-xl space-y-5">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-4">
+                <div className="flex items-start sm:items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300 shrink-0 shadow-inner">
+                    <HardDrive className="w-6 h-6 text-indigo-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-extrabold text-white text-base">Cadangkan & Pulihkan Basis Data Terpadu (1 File JSON)</h3>
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
+                        <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                        <span>Data Aman 100%</span>
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 mt-1">
+                      Semua database madrasah (akun santri/guru, rombel, bank soal, hasil ujian, presensi barcode, dan pengaturan) disimpan lengkap dalam 1 file JSON mandiri.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={exportDatabaseJson}
+                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg cursor-pointer transition"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Cadangkan Database (JSON)</span>
+                  </button>
+
+                  <input
+                    type="file"
+                    ref={jsonBackupInputRef}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = (event) => {
+                        const content = event.target?.result as string;
+                        const res = importDatabaseJson(content);
+                        const isSuccess = typeof res === 'boolean' ? res : res.success;
+                        const msg = typeof res === 'object' ? res.message : (isSuccess ? 'Basis data berhasil dipulihkan!' : 'Gagal memulihkan file');
+                        setBackupRestoreStatus(msg);
+                        setTimeout(() => setBackupRestoreStatus(null), 8000);
+                      };
+                      reader.readAsText(file);
+                      if (e.target) e.target.value = '';
+                    }}
+                    accept=".json"
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => jsonBackupInputRef.current?.click()}
+                    className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold rounded-xl text-xs flex items-center gap-2 cursor-pointer transition"
+                  >
+                    <Upload className="w-4 h-4 text-emerald-400" />
+                    <span>Pulihkan dari File</span>
+                  </button>
+                </div>
+              </div>
+
+              {backupRestoreStatus && (
+                <div className="p-3.5 bg-emerald-950/80 border border-emerald-500/40 rounded-2xl text-xs text-emerald-200 flex items-center gap-2 animate-in fade-in">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{backupRestoreStatus}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-xs">
+                <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 text-center">
+                  <span className="text-[10px] text-slate-400 block">Pengguna</span>
+                  <strong className="text-white font-black text-sm">{users.length}</strong>
+                </div>
+                <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 text-center">
+                  <span className="text-[10px] text-slate-400 block">Rombel</span>
+                  <strong className="text-white font-black text-sm">{classes.length}</strong>
+                </div>
+                <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 text-center">
+                  <span className="text-[10px] text-slate-400 block">Paket Soal</span>
+                  <strong className="text-white font-black text-sm">{exams.length}</strong>
+                </div>
+                <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 text-center">
+                  <span className="text-[10px] text-slate-400 block">Lembar Sesi</span>
+                  <strong className="text-white font-black text-sm">{sessions.length}</strong>
+                </div>
+                <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 text-center">
+                  <span className="text-[10px] text-slate-400 block">Presensi</span>
+                  <strong className="text-white font-black text-sm">{attendanceRecords?.length || 0}</strong>
+                </div>
+                <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 text-center">
+                  <span className="text-[10px] text-slate-400 block">Setelan CBT</span>
+                  <strong className="text-emerald-400 font-bold text-xs">Tersimpan</strong>
+                </div>
+              </div>
+            </div>
 
             {/* Automation, Sync Interval & Offline Fallback */}
             <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-xs space-y-5">
