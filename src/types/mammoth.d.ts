@@ -1,0 +1,17 @@
+declare module 'mammoth' {
+  export interface MammothResult {
+    value: string;
+    messages: Array<{
+      type: string;
+      message: string;
+    }>;
+  }
+
+  export interface MammothOptions {
+    includeDefaultStyleMap?: boolean;
+    styleMap?: string[];
+  }
+
+  export function extractRawText(input: { arrayBuffer: ArrayBuffer } | { buffer: any } | { path: string }): Promise<MammothResult>;
+  export function convertToHtml(input: { arrayBuffer: ArrayBuffer } | { buffer: any } | { path: string }, options?: MammothOptions): Promise<MammothResult>;
+}

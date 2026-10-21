@@ -1,0 +1,6 @@
+{
+  "name": "EduExam CBT Pro",
+  "description": "Aplikasi CBT ujian daring terpadu dengan sistem anti-cheat, pengacakan soal, room kontrol guru, analitik real-time, dan integrasi SIAKAD.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

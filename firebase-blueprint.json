@@ -1,0 +1,119 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Pengguna CBT baik siswa, guru/pengawas, maupun administrator",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "teacher", "student"] },
+        "nisnOrNip": { "type": "string" },
+        "className": { "type": "string" },
+        "schoolName": { "type": "string" }
+      },
+      "required": ["id", "name", "username", "role"]
+    },
+    "ClassGroup": {
+      "title": "ClassGroup",
+      "description": "Rombel dan kelas madrasah tsanawiyah",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "level": { "type": "string" },
+        "academicYear": { "type": "string" },
+        "studentCount": { "type": "number" },
+        "homeroomTeacher": { "type": "string" }
+      },
+      "required": ["id", "name", "level"]
+    },
+    "Exam": {
+      "title": "Exam",
+      "description": "Paket soal asesmen madrasah dan bank soal",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "title": { "type": "string" },
+        "subject": { "type": "string" },
+        "durationMinutes": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "passingGrade": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "draft", "archived"] }
+      },
+      "required": ["id", "code", "title", "subject", "durationMinutes"]
+    },
+    "StudentExamSession": {
+      "title": "StudentExamSession",
+      "description": "Sesi ujian siswa, rekaman jawaban, nilai dan integritas anti-cheat",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "examId": { "type": "string" },
+        "status": { "type": "string", "enum": ["in_progress", "completed", "locked"] },
+        "violationsCount": { "type": "number" },
+        "timeRemainingSeconds": { "type": "number" },
+        "score": { "type": "number" },
+        "isPassed": { "type": "boolean" },
+        "submittedAt": { "type": "string" }
+      },
+      "required": ["id", "studentId", "examId", "status"]
+    },
+    "SystemSettings": {
+      "title": "SystemSettings",
+      "description": "Konfigurasi lembaga dan parameter ujian madrasah",
+      "type": "object",
+      "properties": {
+        "schoolName": { "type": "string" },
+        "kkmDefault": { "type": "number" },
+        "enableAntiCheat": { "type": "boolean" },
+        "academicYear": { "type": "string" }
+      }
+    },
+    "SystemAuditLog": {
+      "title": "SystemAuditLog",
+      "description": "Catatan log audit integritas sistem CBT",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "action": { "type": "string" },
+        "category": { "type": "string" },
+        "details": { "type": "string" },
+        "level": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "action"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Koleksi akun pengguna guru, siswa, dan admin"
+    },
+    "/classes/{classId}": {
+      "schema": "ClassGroup",
+      "description": "Koleksi kelas dan rombel madrasah"
+    },
+    "/exams/{examId}": {
+      "schema": "Exam",
+      "description": "Koleksi paket soal asesmen dan bank soal"
+    },
+    "/sessions/{sessionId}": {
+      "schema": "StudentExamSession",
+      "description": "Koleksi sesi pengerjaan ujian siswa secara real-time"
+    },
+    "/settings/main": {
+      "schema": "SystemSettings",
+      "description": "Dokumen konfigurasi parameter madrasah"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "SystemAuditLog",
+      "description": "Catatan riwayat aktivitas pengawas dan admin"
+    }
+  }
+}
