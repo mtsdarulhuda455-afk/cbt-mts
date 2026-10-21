@@ -26,32 +26,14 @@
     margin: 12mm 15mm 15mm 15mm;
   }
 
-  body {
+  html, body {
     background: white !important;
     color: black !important;
     font-size: 11pt;
-  }
-
-  /* When printing an exam paper modal */
-  body.printing-exam-mode * {
-    visibility: hidden;
-  }
-
-  body.printing-exam-mode #printable-exam-paper,
-  body.printing-exam-mode #printable-exam-paper * {
-    visibility: visible;
-  }
-
-  body.printing-exam-mode #printable-exam-paper {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
-    box-shadow: none !important;
-    border: none !important;
-    background: transparent !important;
+    overflow: visible !important;
+    height: auto !important;
   }
 
   .no-print {
@@ -62,13 +44,52 @@
     display: block !important;
   }
 
-  .break-inside-avoid {
+  .break-inside-avoid,
+  .print-avoid-break {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
+    -webkit-column-break-inside: avoid !important;
   }
 
-  .break-after-page {
+  .break-after-page,
+  .print-page-break {
     break-after: page !important;
     page-break-after: always !important;
+  }
+
+  /* When printing an exam paper modal directly via Ctrl+P */
+  body.printing-exam-mode {
+    overflow: visible !important;
+  }
+
+  body.printing-exam-mode * {
+    visibility: hidden;
+  }
+
+  body.printing-exam-mode #printable-exam-paper,
+  body.printing-exam-mode #printable-exam-paper * {
+    visibility: visible;
+  }
+
+  body.printing-exam-mode #printable-exam-paper {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Allow parent containers to not restrict height or overflow during print */
+  body.printing-exam-mode #root,
+  body.printing-exam-mode div:has(#printable-exam-paper) {
+    overflow: visible !important;
+    position: static !important;
+    height: auto !important;
+    max-height: none !important;
   }
 }
