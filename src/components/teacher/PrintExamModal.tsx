@@ -1,4 +1,4 @@
-import React, { useState, useId } from 'react';
+import React, { useState } from 'react';
 import { 
   Printer, 
   Download, 
@@ -25,7 +25,8 @@ import {
   Sparkles,
   SlidersHorizontal,
   ChevronRight,
-  ListOrdered
+  ListOrdered,
+  FileDown
 } from 'lucide-react';
 import { Exam, ClassGroup, Question, QuestionOption, SystemSettings } from '../../types/cbt';
 import { useCbt } from '../../context/CbtContext';
@@ -64,6 +65,7 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
 
   // Copy toast state
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
 
   if (!isOpen || !exam) return null;
 
@@ -214,7 +216,35 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
     }
   };
 
-  // Generate Standalone Printable HTML Content
+  const examDateFormatted = new Date().toLocaleDateString('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+
+  // Decide how options are structured
+  const shouldRenderOptionGrid = (opts: QuestionOption[]) => {
+    if (optionLayout === 'vertical') return false;
+    if (optionLayout === 'grid2') return true;
+    if (optionLayout === 'horizontal') return false;
+    // auto
+    const hasLongText = opts.some(o => (o.text || '').length > 28);
+    const hasImages = opts.some(o => !!o.image);
+    return !hasImages && !hasLongText;
+  };
+
+  const shouldRenderOptionHorizontal = (opts: QuestionOption[]) => {
+    if (optionLayout === 'horizontal') return true;
+    if (optionLayout === 'auto') {
+      const hasImages = opts.some(o => !!o.image);
+      const isVeryShort = opts.every(o => (o.text || '').length <= 12);
+      return !hasImages && isVeryShort;
+    }
+    return false;
+  };
+
+  // Generate Standalone Printable HTML Content with FULL embedded CSS (no external dependencies needed)
   const getFullHtmlDocument = () => {
     const printElement = document.getElementById('printable-exam-paper');
     if (!printElement) return '';
@@ -245,6 +275,7 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
       padding: 0;
       font-size: ${fontSize === 'compact' ? '10pt' : fontSize === 'large' ? '12pt' : '11pt'};
       line-height: ${fontSize === 'compact' ? '1.35' : '1.45'};
+      -webkit-font-smoothing: antialiased;
     }
     .print-control-bar {
       position: sticky;
@@ -271,9 +302,23 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
       box-shadow: 0 2px 4px rgba(0,0,0,0.15);
     }
     .print-btn:hover { background: #047857; }
+    
+    .paper-wrapper {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #fff;
+    }
+
+    /* Print media overrides */
     @media print {
       .print-control-bar { display: none !important; }
       body { padding: 0 !important; background: transparent !important; }
+      .paper-wrapper {
+        max-width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
       .break-inside-avoid {
         break-inside: avoid !important;
         page-break-inside: avoid !important;
@@ -284,19 +329,12 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
         page-break-after: always !important;
       }
     }
-    .paper-wrapper {
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 20px;
+
+    /* Structural exam styles */
+    table {
+      border-collapse: collapse;
+      width: 100%;
     }
-    @media print {
-      .paper-wrapper {
-        max-width: 100% !important;
-        padding: 0 !important;
-        margin: 0 !important;
-      }
-    }
-    table { border-collapse: collapse; width: 100%; }
     .break-inside-avoid {
       break-inside: avoid;
       page-break-inside: avoid;
@@ -306,7 +344,35 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
       break-after: page;
       page-break-after: always;
     }
-    img { max-width: 100%; height: auto; }
+    img {
+      max-width: 100%;
+      height: auto;
+    }
+
+    /* Two-column newspaper style */
+    .exam-columns-2 {
+      column-count: 2;
+      column-gap: 28px;
+      column-rule: 1px solid #d1d5db;
+    }
+    .exam-columns-1 {
+      column-count: 1;
+    }
+
+    /* Utility classes mappings for print standalone */
+    .flex { display: flex; }
+    .items-center { align-items: center; }
+    .items-start { align-items: flex-start; }
+    .justify-between { justify-content: space-between; }
+    .justify-center { justify-content: center; }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .text-justify { text-align: justify; }
+    .font-bold { font-weight: bold; }
+    .font-black { font-weight: 900; }
+    .uppercase { text-transform: uppercase; }
+    .underline { text-decoration: underline; }
+    .italic { font-style: italic; }
   </style>
 </head>
 <body>
@@ -364,7 +430,7 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
           // Fallback if iframe print is restricted
           window.print();
         }
-      }, 350);
+      }, 400);
     } else {
       window.print();
     }
@@ -383,7 +449,44 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
     }
   };
 
-  // Download Self-Contained Offline HTML Document
+  // Direct PDF Download using html2pdf.js
+  const handleDownloadPdf = async () => {
+    const printElement = document.getElementById('printable-exam-paper');
+    if (!printElement) return;
+
+    setIsGeneratingPdf(true);
+    try {
+      const html2pdfModule = await import('html2pdf.js');
+      const html2pdf = (html2pdfModule as any).default || html2pdfModule;
+
+      const opt = {
+        margin: [10, 12, 12, 12],
+        filename: `Naskah-Soal-${exam.code}-${printMode}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { 
+          unit: 'mm', 
+          format: paperSize === 'F4' ? [215, 330] : 'a4', 
+          orientation: 'portrait' 
+        },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+      };
+
+      await html2pdf().set(opt).from(printElement).save();
+
+      addAuditLog(
+        'DOWNLOAD_EXAM_PDF',
+        'exam',
+        `Mengunduh berkas naskah soal format PDF langsung ${exam.code}`,
+        'info'
+      );
+    } catch (err) {
+      console.warn('Notice generating client PDF, falling back to print dialog:', err);
+      handlePrint();
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
   const handleDownloadHtml = () => {
     const html = getFullHtmlDocument();
     if (!html) return;
@@ -430,32 +533,6 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
       setTimeout(() => setCopySuccess(null), 3000);
     }
   };
-
-  // Helper: Determine Option Grid Arrangement for a Question
-  const getOptionGridClass = (opts: QuestionOption[]) => {
-    if (optionLayout === 'vertical') return 'grid-cols-1';
-    if (optionLayout === 'grid2') return 'grid-cols-1 sm:grid-cols-2';
-    if (optionLayout === 'horizontal') return 'flex flex-wrap items-center gap-x-6 gap-y-1';
-
-    // Auto Mode: if all option texts are short (< 25 chars) and no images, arrange in 2 columns or horizontal
-    const hasLongText = opts.some(o => (o.text || '').length > 28);
-    const hasImages = opts.some(o => !!o.image);
-    if (!hasImages && !hasLongText) {
-      const isVeryShort = opts.every(o => (o.text || '').length <= 12);
-      if (isVeryShort) {
-        return 'flex flex-wrap items-center gap-x-6 gap-y-1';
-      }
-      return 'grid-cols-1 sm:grid-cols-2';
-    }
-    return 'grid-cols-1';
-  };
-
-  const examDateFormatted = new Date().toLocaleDateString('id-ID', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  });
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
@@ -515,6 +592,21 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
               >
                 <Download className="w-4 h-4 text-slate-600" />
                 <span className="hidden sm:inline">Unduh HTML</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isGeneratingPdf}
+                onClick={handleDownloadPdf}
+                className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition shadow-xs disabled:opacity-50"
+                title="Unduh Naskah Soal langsung ke format file .PDF"
+              >
+                {isGeneratingPdf ? (
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                ) : (
+                  <FileDown className="w-4 h-4" />
+                )}
+                <span>{isGeneratingPdf ? 'Membuat PDF...' : 'Download PDF'}</span>
               </button>
 
               <button
@@ -777,131 +869,132 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
           
           <div
             id="printable-exam-paper"
-            className={`bg-white text-black shadow-2xl border border-slate-300 rounded-none w-full max-w-[850px] p-6 sm:p-10 transition-all ${
-              fontSize === 'compact' 
-                ? 'text-[13px] leading-snug' 
-                : fontSize === 'large' 
-                  ? 'text-[15.5px] leading-relaxed' 
-                  : 'text-[14px] leading-normal'
-            }`}
+            className="bg-white text-black shadow-2xl rounded-none w-full max-w-[850px] p-6 sm:p-10 transition-all"
             style={{
               fontFamily: '"Times New Roman", Times, Georgia, serif',
+              fontSize: fontSize === 'compact' ? '10pt' : fontSize === 'large' ? '12pt' : '11pt',
+              lineHeight: fontSize === 'compact' ? '1.35' : '1.45',
+              color: '#000',
               minHeight: '1050px'
             }}
           >
             {/* ========================================================================= */}
-            {/* 1. KOP SURAT MADRASAH RESMI */}
+            {/* 1. KOP SURAT MADRASAH RESMI (TABEL 3 SEL DENGAN GARIS GANDA RESMI) */}
             {/* ========================================================================= */}
             {showKop && (
-              <div className="mb-4 pb-2 border-b-2 border-black">
-                <div className="flex items-center justify-between gap-3 text-black">
-                  {/* Logo Kemenag / Madrasah */}
-                  <div className="w-16 h-16 shrink-0 flex items-center justify-center">
-                    <svg className="w-14 h-14" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <polygon points="50,5 92,25 92,75 50,95 8,75 8,25" stroke="#000" strokeWidth="2.5" fill="#f8fafc" />
-                      <circle cx="50" cy="50" r="28" stroke="#000" strokeWidth="2" fill="#fff" />
-                      <path d="M 50 26 L 50 74 M 26 50 L 74 50" stroke="#000" strokeWidth="1.5" />
-                      <path d="M 36 62 Q 50 48 64 62" stroke="#000" strokeWidth="2.5" fill="none" />
-                      <circle cx="50" cy="40" r="5" fill="#000" />
-                      <text x="50" y="85" textAnchor="middle" fontSize="6.5" fontWeight="bold" fill="#000" fontFamily="sans-serif">IKHLAS BERAMAL</text>
-                    </svg>
-                  </div>
+              <div style={{ marginBottom: '14px', pageBreakInside: 'avoid' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: 'none' }}>
+                  <tbody>
+                    <tr>
+                      {/* Logo Kemenag / Madrasah */}
+                      <td style={{ width: '70px', verticalAlign: 'middle', textAlign: 'center', border: 'none', padding: '0 8px 0 0' }}>
+                        <svg style={{ width: '60px', height: '60px', display: 'block', margin: '0 auto' }} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <polygon points="50,5 92,25 92,75 50,95 8,75 8,25" stroke="#000" strokeWidth="2.5" fill="#f8fafc" />
+                          <circle cx="50" cy="50" r="28" stroke="#000" strokeWidth="2" fill="#fff" />
+                          <path d="M 50 26 L 50 74 M 26 50 L 74 50" stroke="#000" strokeWidth="1.5" />
+                          <path d="M 36 62 Q 50 48 64 62" stroke="#000" strokeWidth="2.5" fill="none" />
+                          <circle cx="50" cy="40" r="5" fill="#000" />
+                          <text x="50" y="85" textAnchor="middle" fontSize="6.5" fontWeight="bold" fill="#000" fontFamily="sans-serif">IKHLAS BERAMAL</text>
+                        </svg>
+                      </td>
 
-                  {/* Hierarki Kemenag & Nama Lembaga */}
-                  <div className="flex-1 text-center">
-                    <h4 className="text-[11px] sm:text-xs font-bold tracking-wider uppercase mb-0 text-black">
-                      KEMENTERIAN AGAMA REPUBLIK INDONESIA
-                    </h4>
-                    <h5 className="text-[10px] sm:text-[11px] font-bold tracking-wide uppercase mb-0 text-black">
-                      KANTOR KEMENTERIAN AGAMA {systemSettings.city ? `KABUPATEN/KOTA ${systemSettings.city.toUpperCase()}` : 'KABUPATEN/KOTA'}
-                    </h5>
-                    <h3 className="text-base sm:text-lg font-black tracking-wide uppercase my-0.5 text-black">
-                      {systemSettings.schoolName || 'MADRASAH TSANAWIYAH DARUL HUDA'}
-                    </h3>
-                    <p className="text-[10px] sm:text-[11px] font-normal leading-tight text-black">
-                      {systemSettings.address || 'Jl. KH. Hasyim Asy\'ari No. 12'}, Kec. {systemSettings.subdistrict || 'Megaluh'}, {systemSettings.city || 'Jombang'}, Prov. {systemSettings.province || 'Jawa Timur'}
-                    </p>
-                    <p className="text-[10px] font-semibold mt-0.5 text-black">
-                      NSM: {systemSettings.nsm || '121235170001'} &bull; NPSN: {systemSettings.npsn || '20277812'}
-                    </p>
-                  </div>
+                      {/* Teks Lembaga & Kementerian */}
+                      <td style={{ verticalAlign: 'middle', textAlign: 'center', border: 'none', padding: '0 6px' }}>
+                        <div style={{ fontSize: '10pt', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', margin: 0, color: '#000' }}>
+                          KEMENTERIAN AGAMA REPUBLIK INDONESIA
+                        </div>
+                        <div style={{ fontSize: '9.5pt', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.3px', margin: 0, color: '#000' }}>
+                          KANTOR KEMENTERIAN AGAMA {systemSettings.city ? `KABUPATEN/KOTA ${systemSettings.city.toUpperCase()}` : 'KABUPATEN/KOTA'}
+                        </div>
+                        <div style={{ fontSize: '13pt', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '2px 0', color: '#000' }}>
+                          {systemSettings.schoolName || 'MADRASAH TSANAWIYAH DARUL HUDA'}
+                        </div>
+                        <div style={{ fontSize: '9pt', fontWeight: 'normal', lineHeight: '1.25', margin: 0, color: '#000' }}>
+                          {systemSettings.address || 'Jl. KH. Hasyim Asy\'ari No. 12'}, Kec. {systemSettings.subdistrict || 'Megaluh'}, {systemSettings.city || 'Jombang'}, Prov. {systemSettings.province || 'Jawa Timur'}
+                        </div>
+                        <div style={{ fontSize: '9pt', fontWeight: 'bold', marginTop: '1px', color: '#000' }}>
+                          NSM: {systemSettings.nsm || '121235170001'} &bull; NPSN: {systemSettings.npsn || '20277812'}
+                        </div>
+                      </td>
 
-                  {/* Logo / Badge Kanan */}
-                  <div className="w-16 h-16 shrink-0 hidden sm:flex flex-col items-center justify-center border border-black p-1 text-[9px] font-bold text-center leading-tight">
-                    <span>ASESMEN</span>
-                    <span className="text-xs font-black">MADRASAH</span>
-                    <span>{exam.academicYear.split('/')[0]}</span>
-                  </div>
-                </div>
+                      {/* Badge Kanan */}
+                      <td style={{ width: '70px', verticalAlign: 'middle', textAlign: 'center', border: 'none', padding: '0 0 0 8px' }}>
+                        <div style={{ border: '1.5px solid #000', padding: '4px', fontSize: '8pt', fontWeight: 'bold', textAlign: 'center', lineHeight: '1.2' }}>
+                          <div>ASESMEN</div>
+                          <div style={{ fontSize: '10pt', fontWeight: '900' }}>CBT</div>
+                          <div>{exam.academicYear.split('/')[0]}</div>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
 
-                {/* Garis Ganda Resmi Naskah Dinas: Garis Tebal 2.5px + Spasi + Garis Tipis 0.8px */}
-                <div className="w-full border-t border-black mt-2 pt-0.5"></div>
+                {/* Garis Ganda Resmi Naskah Dinas: Garis Tebal 2.5px + Garis Tipis 0.8px */}
+                <div style={{ borderTop: '2.5px solid #000', borderBottom: '0.8px solid #000', height: '2.5px', marginTop: '6px' }}></div>
               </div>
             )}
 
             {/* ========================================================================= */}
             {/* 2. JUDUL NASKAH UJIAN */}
             {/* ========================================================================= */}
-            <div className="text-center mb-3">
-              <h2 className="text-sm sm:text-base font-black uppercase tracking-wider underline">
+            <div style={{ textAlign: 'center', marginBottom: '12px', pageBreakInside: 'avoid' }}>
+              <div style={{ fontSize: '12pt', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.5px', textDecoration: 'underline' }}>
                 {exam.title.toUpperCase()}
-              </h2>
-              <div className="text-xs font-bold uppercase mt-0.5 text-black">
+              </div>
+              <div style={{ fontSize: '10pt', fontWeight: 'bold', textTransform: 'uppercase', marginTop: '2px' }}>
                 TAHUN AJARAN {exam.academicYear} &bull; SEMESTER {exam.semester.toUpperCase()}
               </div>
               {printMode === 'teacher' && (
-                <div className="inline-block mt-1 px-3 py-0.5 bg-black text-white text-[10px] font-black uppercase tracking-widest rounded">
+                <div style={{ display: 'inline-block', marginTop: '4px', padding: '2px 10px', backgroundColor: '#000', color: '#fff', fontSize: '9pt', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px', borderRadius: '3px' }}>
                   *** DOKUMEN RESMI: ARSIP GURU &amp; KUNCI JAWABAN LENGKAP ***
                 </div>
               )}
             </div>
 
             {/* ========================================================================= */}
-            {/* 3. TABEL IDENTITAS MATA PELAJARAN & SISWA (FORMAT RESMI 4 SEL) */}
+            {/* 3. TABEL IDENTITAS MATA PELAJARAN & SISWA (STANDAR TABEL RESMI) */}
             {/* ========================================================================= */}
             {showIdentityBox && (
-              <div className="border border-black mb-3 text-xs">
-                <table className="w-full border-collapse">
-                  <tbody>
-                    <tr className="border-b border-black">
-                      <td className="w-28 font-bold p-1.5 border-r border-black bg-slate-50/50">Mata Pelajaran</td>
-                      <td className="w-3 text-center border-r-0 font-bold">:</td>
-                      <td className="p-1.5 font-bold uppercase border-r border-black">{exam.subject}</td>
-                      
-                      <td className="w-28 font-bold p-1.5 border-r border-black bg-slate-50/50">Hari / Tanggal</td>
-                      <td className="w-3 text-center border-r-0 font-bold">:</td>
-                      <td className="p-1.5">{examDateFormatted}</td>
-                    </tr>
-                    <tr className="border-b border-black">
-                      <td className="font-bold p-1.5 border-r border-black bg-slate-50/50">Kelas / Sasaran</td>
-                      <td className="text-center border-r-0 font-bold">:</td>
-                      <td className="p-1.5 border-r border-black">{targetClassesNames}</td>
-                      
-                      <td className="font-bold p-1.5 border-r border-black bg-slate-50/50">Alokasi Waktu</td>
-                      <td className="text-center border-r-0 font-bold">:</td>
-                      <td className="p-1.5">{exam.durationMinutes} Menit</td>
-                    </tr>
-                    <tr>
-                      <td className="font-bold p-1.5 border-r border-black bg-slate-50/50">Kode Paket Soal</td>
-                      <td className="text-center border-r-0 font-bold">:</td>
-                      <td className="p-1.5 font-mono font-bold border-r border-black">{exam.code}</td>
-                      
-                      <td className="font-bold p-1.5 border-r border-black bg-slate-50/50">Nama &amp; No. Siswa</td>
-                      <td className="text-center border-r-0 font-bold">:</td>
-                      <td className="p-1.5 text-slate-700 italic">...................................................</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000', marginBottom: '12px', fontSize: '10pt', pageBreakInside: 'avoid' }}>
+                <tbody>
+                  <tr>
+                    <td style={{ width: '115px', fontWeight: 'bold', backgroundColor: '#f8fafc', border: '1px solid #000', padding: '4px 6px' }}>Mata Pelajaran</td>
+                    <td style={{ width: '10px', textAlign: 'center', border: '1px solid #000', fontWeight: 'bold' }}>:</td>
+                    <td style={{ border: '1px solid #000', padding: '4px 6px', fontWeight: 'bold', textTransform: 'uppercase' }}>{exam.subject}</td>
+                    
+                    <td style={{ width: '115px', fontWeight: 'bold', backgroundColor: '#f8fafc', border: '1px solid #000', padding: '4px 6px' }}>Hari / Tanggal</td>
+                    <td style={{ width: '10px', textAlign: 'center', border: '1px solid #000', fontWeight: 'bold' }}>:</td>
+                    <td style={{ border: '1px solid #000', padding: '4px 6px' }}>{examDateFormatted}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: 'bold', backgroundColor: '#f8fafc', border: '1px solid #000', padding: '4px 6px' }}>Kelas / Sasaran</td>
+                    <td style={{ textAlign: 'center', border: '1px solid #000', fontWeight: 'bold' }}>:</td>
+                    <td style={{ border: '1px solid #000', padding: '4px 6px' }}>{targetClassesNames}</td>
+                    
+                    <td style={{ fontWeight: 'bold', backgroundColor: '#f8fafc', border: '1px solid #000', padding: '4px 6px' }}>Alokasi Waktu</td>
+                    <td style={{ textAlign: 'center', border: '1px solid #000', fontWeight: 'bold' }}>:</td>
+                    <td style={{ border: '1px solid #000', padding: '4px 6px' }}>{exam.durationMinutes} Menit</td>
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: 'bold', backgroundColor: '#f8fafc', border: '1px solid #000', padding: '4px 6px' }}>Kode Paket Soal</td>
+                    <td style={{ textAlign: 'center', border: '1px solid #000', fontWeight: 'bold' }}>:</td>
+                    <td style={{ border: '1px solid #000', padding: '4px 6px', fontFamily: 'monospace', fontWeight: 'bold' }}>{exam.code}</td>
+                    
+                    <td style={{ fontWeight: 'bold', backgroundColor: '#f8fafc', border: '1px solid #000', padding: '4px 6px' }}>Nama &amp; No. Siswa</td>
+                    <td style={{ textAlign: 'center', border: '1px solid #000', fontWeight: 'bold' }}>:</td>
+                    <td style={{ border: '1px solid #000', padding: '4px 6px', color: '#444' }}>...................................................</td>
+                  </tr>
+                </tbody>
+              </table>
             )}
 
             {/* ========================================================================= */}
             {/* 4. PETUNJUK UMUM PENGERJAAN */}
             {/* ========================================================================= */}
             {showInstructions && (
-              <div className="border border-black p-2.5 mb-4 text-[10.5px] sm:text-[11px] leading-relaxed bg-slate-50/40 break-inside-avoid">
-                <span className="font-bold underline block mb-1">PETUNJUK UMUM PENGERJAAN:</span>
-                <ol className="list-decimal pl-4 space-y-0.5">
+              <div style={{ border: '1px solid #000', padding: '6px 12px', marginBottom: '14px', backgroundColor: '#fafafa', fontSize: '9.5pt', lineHeight: '1.4', pageBreakInside: 'avoid' }}>
+                <div style={{ fontWeight: 'bold', textDecoration: 'underline', marginBottom: '4px' }}>PETUNJUK UMUM PENGERJAAN:</div>
+                <ol style={{ margin: 0, paddingLeft: '18px' }}>
                   <li>Awali pengerjaan naskah soal dengan membaca <em>Basmalah</em> dan berdoa.</li>
                   <li>Tuliskan nama lengkap, nomor peserta, dan kelas pada lembar jawaban yang telah disediakan.</li>
                   <li>Periksa dan bacalah setiap butir soal dengan saksama sebelum Anda menjawabnya.</li>
@@ -915,216 +1008,300 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
             {/* ========================================================================= */}
             {/* 5. BUTIR-BUTIR SOAL UJIAN (1 KOLOM ATAU 2 KOLOM) */}
             {/* ========================================================================= */}
-            <div className={columns === '2' ? 'columns-1 sm:columns-2 gap-7' : 'space-y-4'}>
+            <div className={columns === '2' ? 'exam-columns-2' : 'exam-columns-1'}>
               {sections.map((section, sIdx) => (
-                <div key={sIdx} className="break-inside-avoid mb-4">
+                <div key={sIdx} style={{ pageBreakInside: 'avoid', marginBottom: '12px' }}>
                   
                   {/* Section Title & Instruction */}
                   {groupingMode === 'sections' && (
-                    <div className="break-inside-avoid mb-3 pb-1 border-b border-black text-black">
-                      <h4 className="font-bold text-xs sm:text-sm uppercase tracking-wide">
+                    <div style={{ borderBottom: '1.5px solid #000', paddingBottom: '3px', margin: '14px 0 10px 0', pageBreakAfter: 'avoid' }}>
+                      <div style={{ fontWeight: 'bold', fontSize: '10.5pt', textTransform: 'uppercase' }}>
                         {section.title}
-                      </h4>
-                      <p className="text-[10px] sm:text-[10.5px] italic text-slate-800 mt-0.5 leading-snug">
+                      </div>
+                      <div style={{ fontSize: '9pt', fontStyle: 'italic', color: '#333', marginTop: '1px' }}>
                         {section.instruction}
-                      </p>
+                      </div>
                     </div>
                   )}
 
                   {/* Section Questions */}
-                  <div className="space-y-3.5">
+                  <div>
                     {section.items.map(({ question: q, originalIndex, sectionIndex }) => {
                       const displayNum = groupingMode === 'sections' ? sectionIndex : originalIndex + 1;
+                      const isGrid = shouldRenderOptionGrid(q.options || []);
+                      const isHorizontal = shouldRenderOptionHorizontal(q.options || []);
 
                       return (
                         <div
                           key={q.id}
-                          className="break-inside-avoid pb-3 border-b border-slate-200 text-black leading-relaxed"
-                          style={{ pageBreakInside: 'avoid' }}
+                          style={{
+                            pageBreakInside: 'avoid',
+                            breakInside: 'avoid',
+                            marginBottom: '10px',
+                            paddingBottom: '8px',
+                            borderBottom: '1px dashed #d1d5db'
+                          }}
                         >
-                          {/* Number & Question Text with Hanging Indent */}
-                          <div className="flex items-start">
-                            <span className="w-7 shrink-0 text-right pr-2 font-bold select-none text-xs sm:text-sm">
-                              {displayNum}.
-                            </span>
-                            <div className="flex-1 min-w-0">
-                              {/* Points badge in Teacher mode */}
-                              {printMode === 'teacher' && (
-                                <div className="flex items-center justify-between text-[10px] font-bold text-slate-600 mb-0.5">
-                                  <span>[Jenis: {q.type}]</span>
-                                  <span className="bg-slate-100 px-1.5 py-0.2 rounded border border-slate-300">
-                                    Bobot: {q.points || 10} Poin
-                                  </span>
-                                </div>
-                              )}
+                          {/* Table structure for Number and Question Body for bulletproof indentation */}
+                          <table style={{ width: '100%', borderCollapse: 'collapse', border: 'none', margin: 0, padding: 0 }}>
+                            <tbody>
+                              <tr>
+                                {/* Nomor Soal (Hanging Indent Table Cell) */}
+                                <td style={{ width: '26px', verticalAlign: 'top', fontWeight: 'bold', border: 'none', padding: '0 6px 0 0', textAlign: 'right' }}>
+                                  {displayNum}.
+                                </td>
 
-                              {/* Question Narrative / Equation */}
-                              <div className="font-normal text-justify text-black">
-                                <MathRenderer text={q.text} />
-                              </div>
+                                {/* Narasi & Konten Soal */}
+                                <td style={{ verticalAlign: 'top', border: 'none', padding: 0, textAlign: 'justify', lineHeight: '1.45' }}>
+                                  {/* Points badge in Teacher mode */}
+                                  {printMode === 'teacher' && (
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9pt', fontWeight: 'bold', color: '#4b5563', marginBottom: '2px' }}>
+                                      <span>[Tipe: {q.type}]</span>
+                                      <span style={{ backgroundColor: '#f3f4f6', padding: '1px 6px', border: '1px solid #d1d5db', borderRadius: '3px' }}>
+                                        Bobot: {q.points || 10} Poin
+                                      </span>
+                                    </div>
+                                  )}
 
-                              {/* Question Image (If any) */}
-                              {q.image && (
-                                <div className="my-2 p-1 border border-black/40 rounded bg-white inline-block max-w-full">
-                                  <img
-                                    src={q.image}
-                                    alt={`Gambar Soal #${displayNum}`}
-                                    className="max-h-44 w-auto object-contain mx-auto"
-                                  />
-                                  <span className="text-[9px] text-center block text-slate-600 mt-0.5 italic">
-                                    (Gambar Soal #{displayNum})
-                                  </span>
-                                </div>
-                              )}
+                                  {/* Teks Soal / Rumus KaTeX */}
+                                  <div style={{ color: '#000' }}>
+                                    <MathRenderer text={q.text} />
+                                  </div>
 
-                              {/* ========================================================= */}
-                              {/* OPSI TIPE 1: PILIHAN GANDA */}
-                              {/* ========================================================= */}
-                              {q.type === 'multiple_choice' && (
-                                <div className={`mt-2 ${getOptionGridClass(q.options)} gap-x-4 gap-y-1`}>
-                                  {q.options.map((opt, optIdx) => {
-                                    const letter = String.fromCharCode(65 + optIdx);
-                                    const isCorrect = q.correctOptionId === opt.id;
-                                    return (
-                                      <div
-                                        key={opt.id}
-                                        className={`flex items-start gap-1.5 py-0.5 ${
-                                          printMode === 'teacher' && isCorrect
-                                            ? 'font-bold text-emerald-900 bg-emerald-50/80 px-1 rounded'
-                                            : ''
-                                        }`}
-                                      >
-                                        <span className="font-bold shrink-0">{letter}.</span>
-                                        <div className="flex-1">
-                                          <span><MathRenderer text={opt.text} inline /></span>
-                                          {opt.image && (
-                                            <div className="my-1">
-                                              <img src={opt.image} alt={`Opsi ${letter}`} className="max-h-20 object-contain border" />
+                                  {/* Gambar Soal (Jika ada) */}
+                                  {q.image && (
+                                    <div style={{ margin: '6px 0', border: '1px solid #999', padding: '3px', background: '#fff', display: 'inline-block', maxWidth: '100%' }}>
+                                      <img
+                                        src={q.image}
+                                        alt={`Gambar Soal #${displayNum}`}
+                                        style={{ maxHeight: '160px', width: 'auto', display: 'block', margin: '0 auto' }}
+                                      />
+                                      <div style={{ fontSize: '8pt', textAlign: 'center', color: '#555', fontStyle: 'italic', marginTop: '2px' }}>
+                                        (Gambar Soal #{displayNum})
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* ========================================================= */}
+                                  {/* OPSI TIPE 1: PILIHAN GANDA (PG) */}
+                                  {/* ========================================================= */}
+                                  {q.type === 'multiple_choice' && (
+                                    <div style={{ marginTop: '5px' }}>
+                                      {/* Mode 1: 2 Kolom Grid */}
+                                      {isGrid ? (
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', border: 'none', margin: '2px 0' }}>
+                                          <tbody>
+                                            {Array.from({ length: Math.ceil(q.options.length / 2) }).map((_, rIdx) => {
+                                              const opt1 = q.options[rIdx * 2];
+                                              const opt2 = q.options[rIdx * 2 + 1];
+                                              const letter1 = String.fromCharCode(65 + rIdx * 2);
+                                              const letter2 = String.fromCharCode(65 + rIdx * 2 + 1);
+                                              const isCorrect1 = q.correctOptionId === opt1?.id;
+                                              const isCorrect2 = opt2 && q.correctOptionId === opt2.id;
+
+                                              return (
+                                                <tr key={rIdx}>
+                                                  {/* Col 1 */}
+                                                  <td style={{ width: '50%', verticalAlign: 'top', border: 'none', padding: '2px 10px 2px 0' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'flex-start', ...(printMode === 'teacher' && isCorrect1 ? { backgroundColor: '#f0fdf4', fontWeight: 'bold' } : {}) }}>
+                                                      <span style={{ fontWeight: 'bold', width: '20px', flexShrink: 0 }}>{letter1}.</span>
+                                                      <div style={{ flex: 1 }}>
+                                                        <MathRenderer text={opt1.text} inline />
+                                                        {printMode === 'teacher' && isCorrect1 && (
+                                                          <span style={{ marginLeft: '6px', fontSize: '8.5pt', color: '#047857', fontWeight: 'bold' }}>(✓ Kunci)</span>
+                                                        )}
+                                                      </div>
+                                                    </div>
+                                                  </td>
+
+                                                  {/* Col 2 */}
+                                                  <td style={{ width: '50%', verticalAlign: 'top', border: 'none', padding: '2px 0 2px 10px' }}>
+                                                    {opt2 && (
+                                                      <div style={{ display: 'flex', alignItems: 'flex-start', ...(printMode === 'teacher' && isCorrect2 ? { backgroundColor: '#f0fdf4', fontWeight: 'bold' } : {}) }}>
+                                                        <span style={{ fontWeight: 'bold', width: '20px', flexShrink: 0 }}>{letter2}.</span>
+                                                        <div style={{ flex: 1 }}>
+                                                          <MathRenderer text={opt2.text} inline />
+                                                          {printMode === 'teacher' && isCorrect2 && (
+                                                            <span style={{ marginLeft: '6px', fontSize: '8.5pt', color: '#047857', fontWeight: 'bold' }}>(✓ Kunci)</span>
+                                                          )}
+                                                        </div>
+                                                      </div>
+                                                    )}
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })}
+                                          </tbody>
+                                        </table>
+                                      ) : isHorizontal ? (
+                                        /* Mode 2: Horizontal Sebaris */
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 18px', marginTop: '4px' }}>
+                                          {q.options.map((opt, optIdx) => {
+                                            const letter = String.fromCharCode(65 + optIdx);
+                                            const isCorrect = q.correctOptionId === opt.id;
+                                            return (
+                                              <span
+                                                key={opt.id}
+                                                style={{
+                                                  display: 'inline-flex',
+                                                  alignItems: 'baseline',
+                                                  ...(printMode === 'teacher' && isCorrect ? { backgroundColor: '#f0fdf4', fontWeight: 'bold' } : {})
+                                                }}
+                                              >
+                                                <strong style={{ marginRight: '4px' }}>{letter}.</strong>
+                                                <MathRenderer text={opt.text} inline />
+                                                {printMode === 'teacher' && isCorrect && (
+                                                  <span style={{ marginLeft: '4px', fontSize: '8pt', color: '#047857', fontWeight: 'bold' }}>(✓ Kunci)</span>
+                                                )}
+                                              </span>
+                                            );
+                                          })}
+                                        </div>
+                                      ) : (
+                                        /* Mode 3: 1 Kolom Vertikal (Standar) */
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', border: 'none', margin: '2px 0' }}>
+                                          <tbody>
+                                            {q.options.map((opt, optIdx) => {
+                                              const letter = String.fromCharCode(65 + optIdx);
+                                              const isCorrect = q.correctOptionId === opt.id;
+                                              return (
+                                                <tr key={opt.id} style={printMode === 'teacher' && isCorrect ? { backgroundColor: '#f0fdf4' } : {}}>
+                                                  <td style={{ width: '22px', verticalAlign: 'top', fontWeight: 'bold', border: 'none', padding: '2px 4px 2px 0' }}>
+                                                    {letter}.
+                                                  </td>
+                                                  <td style={{ verticalAlign: 'top', border: 'none', padding: '2px 0' }}>
+                                                    <MathRenderer text={opt.text} inline />
+                                                    {opt.image && (
+                                                      <div style={{ margin: '4px 0' }}>
+                                                        <img src={opt.image} alt={`Opsi ${letter}`} style={{ maxHeight: '80px', border: '1px solid #ccc' }} />
+                                                      </div>
+                                                    )}
+                                                    {printMode === 'teacher' && isCorrect && (
+                                                      <span style={{ marginLeft: '8px', fontSize: '8.5pt', color: '#047857', fontWeight: 'bold' }}>
+                                                        (✓ Kunci Benar)
+                                                      </span>
+                                                    )}
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })}
+                                          </tbody>
+                                        </table>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* ========================================================= */}
+                                  {/* OPSI TIPE 2: PILIHAN GANDA KOMPLEKS (PG-K) */}
+                                  {/* ========================================================= */}
+                                  {q.type === 'multiple_choice_complex' && (
+                                    <div style={{ marginTop: '5px' }}>
+                                      <table style={{ width: '100%', borderCollapse: 'collapse', border: 'none', margin: '2px 0' }}>
+                                        <tbody>
+                                          {q.options.map((opt, optIdx) => {
+                                            const letter = String.fromCharCode(65 + optIdx);
+                                            const isCorrect = (q.correctOptionIds || []).includes(opt.id);
+                                            return (
+                                              <tr key={opt.id} style={printMode === 'teacher' && isCorrect ? { backgroundColor: '#f0fdf4' } : {}}>
+                                                <td style={{ width: '38px', verticalAlign: 'top', fontFamily: 'monospace', fontWeight: 'bold', border: 'none', padding: '2px 4px 2px 0' }}>
+                                                  {printMode === 'teacher' && isCorrect ? '[ ✓ ]' : '[ &nbsp; ]'}
+                                                </td>
+                                                <td style={{ width: '22px', verticalAlign: 'top', fontWeight: 'bold', border: 'none', padding: '2px 4px 2px 0' }}>
+                                                  {letter}.
+                                                </td>
+                                                <td style={{ verticalAlign: 'top', border: 'none', padding: '2px 0' }}>
+                                                  <MathRenderer text={opt.text} inline />
+                                                  {printMode === 'teacher' && isCorrect && (
+                                                    <span style={{ marginLeft: '8px', fontSize: '8.5pt', color: '#047857', fontWeight: 'bold' }}>
+                                                      (✓ Kunci Benar)
+                                                    </span>
+                                                  )}
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+
+                                  {/* ========================================================= */}
+                                  {/* OPSI TIPE 3: MENJODOHKAN (MATCHING) */}
+                                  {/* ========================================================= */}
+                                  {q.type === 'matching' && (
+                                    <div style={{ marginTop: '6px' }}>
+                                      <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000', margin: '4px 0', fontSize: '9.5pt' }}>
+                                        <thead>
+                                          <tr style={{ backgroundColor: '#f1f5f9', fontWeight: 'bold' }}>
+                                            <th style={{ border: '1px solid #000', padding: '4px', textAlign: 'center', width: '28px' }}>No</th>
+                                            <th style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'left' }}>Kolom Premis / Pernyataan (Kiri)</th>
+                                            <th style={{ border: '1px solid #000', padding: '4px', textAlign: 'center', width: '60px' }}>Jawaban</th>
+                                            <th style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'left' }}>Pilihan Jawaban (Kanan)</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {(q.matchingPairs || []).map((pair, pIdx) => {
+                                            const pairLetter = String.fromCharCode(65 + pIdx);
+                                            return (
+                                              <tr key={pair.id || pIdx}>
+                                                <td style={{ border: '1px solid #000', padding: '4px', textAlign: 'center', fontWeight: 'bold' }}>{pIdx + 1}</td>
+                                                <td style={{ border: '1px solid #000', padding: '4px 8px' }}>{pair.leftPrompt}</td>
+                                                <td style={{ border: '1px solid #000', padding: '4px', textAlign: 'center', fontWeight: 'bold' }}>
+                                                  {printMode === 'teacher' ? (
+                                                    <span style={{ textDecoration: 'underline', color: '#047857', fontWeight: 'bold' }}>[{pairLetter}]</span>
+                                                  ) : (
+                                                    <span style={{ color: '#444' }}>( ... )</span>
+                                                  )}
+                                                </td>
+                                                <td style={{ border: '1px solid #000', padding: '4px 8px' }}>
+                                                  <strong>{pairLetter}.</strong> {pair.rightAnswer}
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+
+                                  {/* ========================================================= */}
+                                  {/* OPSI TIPE 4: ESAI / URAIAN */}
+                                  {/* ========================================================= */}
+                                  {q.type === 'essay' && (
+                                    <div style={{ marginTop: '6px' }}>
+                                      {printMode === 'student' ? (
+                                        <div style={{ paddingTop: '2px' }}>
+                                          <div style={{ fontSize: '8.5pt', fontWeight: 'bold', color: '#555', textTransform: 'uppercase' }}>
+                                            Ruang Jawaban:
+                                          </div>
+                                          <div style={{ borderBottom: '1px dashed #777', height: '22px', margin: '4px 0' }}></div>
+                                          <div style={{ borderBottom: '1px dashed #777', height: '22px', margin: '4px 0' }}></div>
+                                          <div style={{ borderBottom: '1px dashed #777', height: '22px', margin: '4px 0' }}></div>
+                                          <div style={{ borderBottom: '1px dashed #777', height: '22px', margin: '4px 0' }}></div>
+                                        </div>
+                                      ) : (
+                                        <div style={{ border: '1px solid #000', padding: '6px 10px', backgroundColor: '#f8fafc', fontSize: '9.5pt', marginTop: '6px', borderRadius: '3px' }}>
+                                          <div style={{ fontWeight: 'bold', textDecoration: 'underline', color: '#0f172a' }}>
+                                            Kunci &amp; Rubrik Pedoman Penskoran:
+                                          </div>
+                                          <div style={{ fontStyle: 'italic', marginTop: '2px', color: '#111' }}>
+                                            {q.sampleAnswer || '(Kunci jawaban referensi belum diisi guru)'}
+                                          </div>
+                                          {q.keywords && q.keywords.length > 0 && (
+                                            <div style={{ fontSize: '9pt', marginTop: '4px' }}>
+                                              <strong>Kata Kunci: </strong> <span style={{ fontFamily: 'monospace' }}>{q.keywords.join(', ')}</span>
                                             </div>
                                           )}
-                                          {printMode === 'teacher' && isCorrect && (
-                                            <span className="ml-1 text-[9.5px] uppercase font-bold text-emerald-800">
-                                              (✓ Kunci Benar)
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-
-                              {/* ========================================================= */}
-                              {/* OPSI TIPE 2: PILIHAN GANDA KOMPLEKS */}
-                              {/* ========================================================= */}
-                              {q.type === 'multiple_choice_complex' && (
-                                <div className={`mt-2 ${getOptionGridClass(q.options)} gap-x-4 gap-y-1`}>
-                                  {q.options.map((opt, optIdx) => {
-                                    const letter = String.fromCharCode(65 + optIdx);
-                                    const isCorrect = (q.correctOptionIds || []).includes(opt.id);
-                                    return (
-                                      <div
-                                        key={opt.id}
-                                        className={`flex items-start gap-1.5 py-0.5 ${
-                                          printMode === 'teacher' && isCorrect
-                                            ? 'font-bold text-teal-900 bg-teal-50 px-1 rounded'
-                                            : ''
-                                        }`}
-                                      >
-                                        <span className="font-mono text-xs shrink-0">
-                                          {printMode === 'teacher' && isCorrect ? '[ ✓ ]' : '[ &nbsp; ]'}
-                                        </span>
-                                        <span className="font-bold shrink-0">{letter}.</span>
-                                        <div className="flex-1">
-                                          <span><MathRenderer text={opt.text} inline /></span>
-                                          {printMode === 'teacher' && isCorrect && (
-                                            <span className="ml-1 text-[9.5px] uppercase font-bold text-teal-800">
-                                              (✓ Kunci Benar)
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-
-                              {/* ========================================================= */}
-                              {/* OPSI TIPE 3: MENJODOHKAN (MATCHING) */}
-                              {/* ========================================================= */}
-                              {q.type === 'matching' && (
-                                <div className="mt-2 overflow-x-auto">
-                                  <table className="w-full text-[11px] border-collapse border border-black my-1">
-                                    <thead>
-                                      <tr className="bg-slate-100/70 font-bold">
-                                        <th className="border border-black p-1 text-center w-7">No</th>
-                                        <th className="border border-black p-1 text-left">Kolom Pernyataan / Premis (Kiri)</th>
-                                        <th className="border border-black p-1 text-center w-12">Jawaban</th>
-                                        <th className="border border-black p-1 text-left">Pilihan Jawaban (Kanan)</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {(q.matchingPairs || []).map((pair, pIdx) => {
-                                        const pairLetter = String.fromCharCode(65 + pIdx);
-                                        return (
-                                          <tr key={pair.id || pIdx}>
-                                            <td className="border border-black p-1 text-center font-bold">{pIdx + 1}</td>
-                                            <td className="border border-black p-1">{pair.leftPrompt}</td>
-                                            <td className="border border-black p-1 text-center font-bold">
-                                              {printMode === 'teacher' ? (
-                                                <span className="underline font-black text-indigo-900">[{pairLetter}]</span>
-                                              ) : (
-                                                <span className="text-slate-600">( ... )</span>
-                                              )}
-                                            </td>
-                                            <td className="border border-black p-1">
-                                              <span className="font-bold mr-1">{pairLetter}.</span>
-                                              <span>{pair.rightAnswer}</span>
-                                            </td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              )}
-
-                              {/* ========================================================= */}
-                              {/* OPSI TIPE 4: ESAI / URAIAN */}
-                              {/* ========================================================= */}
-                              {q.type === 'essay' && (
-                                <div className="mt-2">
-                                  {printMode === 'student' ? (
-                                    /* Ruang Garis Jawaban Tulis Tangan Siswa */
-                                    <div className="pt-1.5 space-y-2">
-                                      <span className="text-[9.5px] font-bold text-slate-500 uppercase block">
-                                        Ruang Jawaban:
-                                      </span>
-                                      <div className="border-b border-dashed border-black/50 h-5"></div>
-                                      <div className="border-b border-dashed border-black/50 h-5"></div>
-                                      <div className="border-b border-dashed border-black/50 h-5"></div>
-                                      <div className="border-b border-dashed border-black/50 h-5"></div>
-                                    </div>
-                                  ) : (
-                                    /* Kunci & Rubrik Esai untuk Guru */
-                                    <div className="p-2 border border-black/40 rounded bg-slate-50 text-xs space-y-1">
-                                      <span className="font-bold underline block text-indigo-950">
-                                        Kunci &amp; Rubrik Pedoman Penskoran:
-                                      </span>
-                                      <p className="italic text-slate-900">{q.sampleAnswer || '(Kunci referensi belum diisi guru)'}</p>
-                                      {q.keywords && q.keywords.length > 0 && (
-                                        <div className="pt-1 text-[10px]">
-                                          <span className="font-bold">Kata Kunci Penilaian: </span>
-                                          <span className="font-mono">{q.keywords.join(', ')}</span>
                                         </div>
                                       )}
                                     </div>
                                   )}
-                                </div>
-                              )}
 
-                            </div>
-                          </div>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+
                         </div>
                       );
                     })}
@@ -1137,115 +1314,119 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
             {/* 6. TABEL KUNCI JAWABAN RINGKAS (KHUSUS MODE GURU) */}
             {/* ========================================================================= */}
             {printMode === 'teacher' && showAnswerKeySummary && (
-              <div className="break-inside-avoid mt-6 pt-3 border-t-2 border-black text-xs">
-                <h4 className="font-black uppercase tracking-wider mb-2 text-center text-xs">
-                  TABEL REKAPITULASI KUNCI JAWABAN SINGKAT (ARSIP GURU)
-                </h4>
-                <div className="border border-black overflow-x-auto">
-                  <table className="w-full text-center text-[11px] border-collapse">
-                    <tbody>
-                      <tr className="bg-slate-100 font-bold border-b border-black">
-                        {questions.slice(0, Math.min(25, questions.length)).map((_, i) => (
-                          <th key={i} className="border-r border-black p-1 w-8">{i + 1}</th>
-                        ))}
-                      </tr>
-                      <tr className="font-bold">
-                        {questions.slice(0, Math.min(25, questions.length)).map((q, i) => {
-                          let keyText = '-';
-                          if (q.type === 'multiple_choice') {
-                            const optIdx = q.options.findIndex(o => o.id === q.correctOptionId);
-                            keyText = optIdx >= 0 ? String.fromCharCode(65 + optIdx) : '-';
-                          } else if (q.type === 'multiple_choice_complex') {
-                            keyText = (q.correctOptionIds || []).map(id => {
-                              const oIdx = q.options.findIndex(o => o.id === id);
-                              return oIdx >= 0 ? String.fromCharCode(65 + oIdx) : '';
-                            }).filter(Boolean).join(',');
-                          } else if (q.type === 'matching') {
-                            keyText = 'Jodoh';
-                          } else if (q.type === 'essay') {
-                            keyText = 'Uraian';
-                          }
-                          return (
-                            <td key={i} className="border-r border-black p-1 text-emerald-900 bg-emerald-50/40">
-                              {keyText}
-                            </td>
-                          );
-                        })}
-                      </tr>
-
-                      {/* Row 2 if questions > 25 */}
-                      {questions.length > 25 && (
-                        <>
-                          <tr className="bg-slate-100 font-bold border-t border-b border-black">
-                            {questions.slice(25, Math.min(50, questions.length)).map((_, i) => (
-                              <th key={i + 25} className="border-r border-black p-1 w-8">{i + 26}</th>
-                            ))}
-                          </tr>
-                          <tr className="font-bold">
-                            {questions.slice(25, Math.min(50, questions.length)).map((q, i) => {
-                              let keyText = '-';
-                              if (q.type === 'multiple_choice') {
-                                const optIdx = q.options.findIndex(o => o.id === q.correctOptionId);
-                                keyText = optIdx >= 0 ? String.fromCharCode(65 + optIdx) : '-';
-                              } else if (q.type === 'multiple_choice_complex') {
-                                keyText = (q.correctOptionIds || []).map(id => {
-                                  const oIdx = q.options.findIndex(o => o.id === id);
-                                  return oIdx >= 0 ? String.fromCharCode(65 + oIdx) : '';
-                                }).filter(Boolean).join(',');
-                              } else if (q.type === 'matching') {
-                                keyText = 'Jodoh';
-                              } else if (q.type === 'essay') {
-                                keyText = 'Uraian';
-                              }
-                              return (
-                                <td key={i + 25} className="border-r border-black p-1 text-emerald-900 bg-emerald-50/40">
-                                  {keyText}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        </>
-                      )}
-                    </tbody>
-                  </table>
+              <div style={{ marginTop: '20px', paddingTop: '10px', borderTop: '2px solid #000', fontSize: '9.5pt', pageBreakInside: 'avoid' }}>
+                <div style={{ fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px', textAlign: 'center' }}>
+                  TABEL REKAPITULASI KUNCI JAWABAN RINGKAS (ARSIP GURU)
                 </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000', textAlign: 'center', fontSize: '9pt' }}>
+                  <tbody>
+                    <tr style={{ backgroundColor: '#f1f5f9', fontWeight: 'bold' }}>
+                      {questions.slice(0, Math.min(25, questions.length)).map((_, i) => (
+                        <th key={i} style={{ border: '1px solid #000', padding: '3px', width: '4%' }}>{i + 1}</th>
+                      ))}
+                    </tr>
+                    <tr style={{ fontWeight: 'bold' }}>
+                      {questions.slice(0, Math.min(25, questions.length)).map((q, i) => {
+                        let keyText = '-';
+                        if (q.type === 'multiple_choice') {
+                          const optIdx = q.options.findIndex(o => o.id === q.correctOptionId);
+                          keyText = optIdx >= 0 ? String.fromCharCode(65 + optIdx) : '-';
+                        } else if (q.type === 'multiple_choice_complex') {
+                          keyText = (q.correctOptionIds || []).map(id => {
+                            const oIdx = q.options.findIndex(o => o.id === id);
+                            return oIdx >= 0 ? String.fromCharCode(65 + oIdx) : '';
+                          }).filter(Boolean).join(',');
+                        } else if (q.type === 'matching') {
+                          keyText = 'Jodoh';
+                        } else if (q.type === 'essay') {
+                          keyText = 'Esai';
+                        }
+                        return (
+                          <td key={i} style={{ border: '1px solid #000', padding: '3px', backgroundColor: '#f0fdf4', color: '#065f46' }}>
+                            {keyText}
+                          </td>
+                        );
+                      })}
+                    </tr>
+
+                    {/* Row 2 if questions > 25 */}
+                    {questions.length > 25 && (
+                      <>
+                        <tr style={{ backgroundColor: '#f1f5f9', fontWeight: 'bold' }}>
+                          {questions.slice(25, Math.min(50, questions.length)).map((_, i) => (
+                            <th key={i + 25} style={{ border: '1px solid #000', padding: '3px', width: '4%' }}>{i + 26}</th>
+                          ))}
+                        </tr>
+                        <tr style={{ fontWeight: 'bold' }}>
+                          {questions.slice(25, Math.min(50, questions.length)).map((q, i) => {
+                            let keyText = '-';
+                            if (q.type === 'multiple_choice') {
+                              const optIdx = q.options.findIndex(o => o.id === q.correctOptionId);
+                              keyText = optIdx >= 0 ? String.fromCharCode(65 + optIdx) : '-';
+                            } else if (q.type === 'multiple_choice_complex') {
+                              keyText = (q.correctOptionIds || []).map(id => {
+                                const oIdx = q.options.findIndex(o => o.id === id);
+                                return oIdx >= 0 ? String.fromCharCode(65 + oIdx) : '';
+                              }).filter(Boolean).join(',');
+                            } else if (q.type === 'matching') {
+                              keyText = 'Jodoh';
+                            } else if (q.type === 'essay') {
+                              keyText = 'Esai';
+                            }
+                            return (
+                              <td key={i + 25} style={{ border: '1px solid #000', padding: '3px', backgroundColor: '#f0fdf4', color: '#065f46' }}>
+                                {keyText}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      </>
+                    )}
+                  </tbody>
+                </table>
               </div>
             )}
 
             {/* ========================================================================= */}
-            {/* 7. TANDA TANGAN PENGESAHAN KEPALA MADRASAH & GURU */}
+            {/* 7. TANDA TANGAN PENGESAHAN KEPALA MADRASAH & GURU PENGAMPU */}
             {/* ========================================================================= */}
             {showSignature && (
-              <div className="break-inside-avoid mt-8 pt-4 border-t border-black text-xs">
-                <div className="flex justify-between items-start text-center">
-                  {/* Kolom Kiri: Kepala Madrasah */}
-                  <div className="w-60">
-                    <p className="mb-0.5">Mengetahui,</p>
-                    <p className="font-bold mb-16">Kepala Madrasah,</p>
-                    <p className="font-bold underline uppercase">
-                      {systemSettings.headmasterName || '...................................................'}
-                    </p>
-                    <p className="text-[10px]">
-                      NIP. {systemSettings.headmasterNip || '...........................................'}
-                    </p>
-                  </div>
+              <div style={{ marginTop: '24px', paddingTop: '10px', borderTop: '1px solid #000', pageBreakInside: 'avoid' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: 'none', fontSize: '10pt' }}>
+                  <tbody>
+                    <tr>
+                      {/* Kolom Kiri: Kepala Madrasah */}
+                      <td style={{ width: '50%', textAlign: 'center', verticalAlign: 'top', border: 'none', padding: '0 10px' }}>
+                        <p style={{ margin: '0 0 2px 0' }}>Mengetahui,</p>
+                        <p style={{ margin: '0 0 55px 0', fontWeight: 'bold' }}>Kepala Madrasah,</p>
+                        <p style={{ margin: 0, fontWeight: 'bold', textDecoration: 'underline', textTransform: 'uppercase' }}>
+                          {systemSettings.headmasterName || '...................................................'}
+                        </p>
+                        <p style={{ margin: '2px 0 0 0', fontSize: '9pt' }}>
+                          NIP. {systemSettings.headmasterNip || '...........................................'}
+                        </p>
+                      </td>
 
-                  {/* Kolom Kanan: Guru Pengampu */}
-                  <div className="w-60">
-                    <p className="mb-0.5">
-                      {systemSettings.city || 'Kabupaten'}, {examDateFormatted}
-                    </p>
-                    <p className="font-bold mb-16">Guru Pengampu Mata Pelajaran,</p>
-                    <p className="font-bold underline uppercase">
-                      {exam.authorName || '...................................................'}
-                    </p>
-                    <p className="text-[10px]">NIP. ...........................................</p>
-                  </div>
-                </div>
+                      {/* Kolom Kanan: Guru Pengampu */}
+                      <td style={{ width: '50%', textAlign: 'center', verticalAlign: 'top', border: 'none', padding: '0 10px' }}>
+                        <p style={{ margin: '0 0 2px 0' }}>
+                          {systemSettings.city || 'Kabupaten'}, {examDateFormatted}
+                        </p>
+                        <p style={{ margin: '0 0 55px 0', fontWeight: 'bold' }}>Guru Pengampu Mata Pelajaran,</p>
+                        <p style={{ margin: 0, fontWeight: 'bold', textDecoration: 'underline', textTransform: 'uppercase' }}>
+                          {exam.authorName || '...................................................'}
+                        </p>
+                        <p style={{ margin: '2px 0 0 0', fontSize: '9pt' }}>
+                          NIP. ...........................................
+                        </p>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
 
-                <div className="mt-4 pt-2 border-t border-slate-300 flex justify-between text-[9px] text-slate-500 italic">
+                <div style={{ marginTop: '12px', paddingTop: '4px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', fontSize: '8.5pt', color: '#6b7280', fontStyle: 'italic' }}>
                   <span>Dicetak melalui Sistem CBT MTs Terpadu &bull; Paket: <strong>{exam.code}</strong></span>
-                  <span>Token Ujian: <strong>{exam.token}</strong> &bull; Halaman Resmi Madrasah</span>
+                  <span>Token Ujian: <strong>{exam.token}</strong> &bull; Halaman Dokumen Resmi</span>
                 </div>
               </div>
             )}
@@ -1254,63 +1435,98 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
             {/* 8. OPTIONAL: LEMBAR JAWABAN FISIK (LJK KOMPUTER / KERTAS LEMBAR JAWAB) */}
             {/* ========================================================================= */}
             {showAnswerSheet && (
-              <div className="break-after-page mt-12 pt-8 border-t-4 border-dashed border-black">
+              <div style={{ pageBreakBefore: 'always', marginTop: '24px', paddingTop: '16px', borderTop: '3px dashed #000' }}>
                 {/* LJK Kop */}
-                <div className="text-center mb-3">
-                  <h3 className="text-sm font-black uppercase tracking-wider underline">
+                <div style={{ textAlign: 'center', marginBottom: '10px' }}>
+                  <div style={{ fontSize: '12pt', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.5px', textDecoration: 'underline' }}>
                     LEMBAR JAWABAN UJIAN (LJK FISIK)
-                  </h3>
-                  <p className="text-xs font-bold uppercase mt-0.5">
+                  </div>
+                  <div style={{ fontSize: '9.5pt', fontWeight: 'bold', textTransform: 'uppercase', marginTop: '2px' }}>
                     {systemSettings.schoolName || 'MADRASAH TSANAWIYAH'} &bull; {exam.title} ({exam.code})
-                  </p>
+                  </div>
                 </div>
 
                 {/* Kotak Identitas Siswa LJK */}
-                <div className="border border-black p-2.5 mb-3 grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <span className="font-bold">Nama Lengkap:</span> ....................................................
-                  </div>
-                  <div>
-                    <span className="font-bold">Nomor Peserta:</span> ....................................................
-                  </div>
-                  <div>
-                    <span className="font-bold">Kelas / Ruang:</span> ....................................................
-                  </div>
-                  <div>
-                    <span className="font-bold">Nilai Akhir:</span> [&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]
-                  </div>
-                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000', marginBottom: '10px', fontSize: '9.5pt' }}>
+                  <tbody>
+                    <tr>
+                      <td style={{ border: '1px solid #000', padding: '4px 6px', width: '50%' }}>
+                        <strong>Nama Lengkap:</strong> ....................................................
+                      </td>
+                      <td style={{ border: '1px solid #000', padding: '4px 6px', width: '50%' }}>
+                        <strong>Nomor Peserta:</strong> ....................................................
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style={{ border: '1px solid #000', padding: '4px 6px' }}>
+                        <strong>Kelas / Ruang:</strong> ....................................................
+                      </td>
+                      <td style={{ border: '1px solid #000', padding: '4px 6px' }}>
+                        <strong>Nilai Akhir:</strong> [&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
 
-                <p className="text-[9.5px] italic mb-2 text-slate-700">
+                <div style={{ fontSize: '8.5pt', fontStyle: 'italic', marginBottom: '8px', color: '#444' }}>
                   * Berilah tanda silang (X) atau hitamkan bulatan pada huruf pilihan jawaban A, B, C, atau D yang Anda anggap paling benar.
-                </p>
-
-                {/* Grid Lembar Jawaban 20 Butir per Kolom */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 border border-black p-2.5 text-xs mb-3">
-                  {questions.filter(q => q.type === 'multiple_choice' || q.type === 'multiple_choice_complex').map((q, idx) => (
-                    <div key={q.id} className="flex items-center gap-1.5 py-0.5">
-                      <span className="w-5 font-bold text-right text-[11px]">{idx + 1}.</span>
-                      <div className="flex items-center gap-1 font-mono font-bold text-[10.5px]">
-                        <span className="border border-black rounded-full px-1 py-0.2">(A)</span>
-                        <span className="border border-black rounded-full px-1 py-0.2">(B)</span>
-                        <span className="border border-black rounded-full px-1 py-0.2">(C)</span>
-                        <span className="border border-black rounded-full px-1 py-0.2">(D)</span>
-                      </div>
-                    </div>
-                  ))}
                 </div>
 
-                {/* Area Jawaban Esai */}
+                {/* Grid Lembar Jawaban Pilihan Ganda */}
+                <div style={{ border: '1px solid #000', padding: '8px', marginBottom: '10px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', border: 'none', fontSize: '9pt' }}>
+                    <tbody>
+                      {Array.from({ length: Math.ceil(questions.filter(q => q.type === 'multiple_choice' || q.type === 'multiple_choice_complex').length / 2) }).map((_, rIdx) => {
+                        const q1 = questions.filter(q => q.type === 'multiple_choice' || q.type === 'multiple_choice_complex')[rIdx * 2];
+                        const q2 = questions.filter(q => q.type === 'multiple_choice' || q.type === 'multiple_choice_complex')[rIdx * 2 + 1];
+
+                        return (
+                          <tr key={rIdx}>
+                            {/* Col 1 */}
+                            <td style={{ width: '50%', border: 'none', padding: '2px 8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span style={{ fontWeight: 'bold', width: '24px' }}>{rIdx * 2 + 1}.</span>
+                                <div style={{ display: 'flex', gap: '6px', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                                  <span style={{ border: '1px solid #000', borderRadius: '50%', width: '18px', height: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '7.5pt' }}>A</span>
+                                  <span style={{ border: '1px solid #000', borderRadius: '50%', width: '18px', height: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '7.5pt' }}>B</span>
+                                  <span style={{ border: '1px solid #000', borderRadius: '50%', width: '18px', height: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '7.5pt' }}>C</span>
+                                  <span style={{ border: '1px solid #000', borderRadius: '50%', width: '18px', height: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '7.5pt' }}>D</span>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Col 2 */}
+                            <td style={{ width: '50%', border: 'none', padding: '2px 8px' }}>
+                              {q2 && (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <span style={{ fontWeight: 'bold', width: '24px' }}>{rIdx * 2 + 2}.</span>
+                                  <div style={{ display: 'flex', gap: '6px', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                                    <span style={{ border: '1px solid #000', borderRadius: '50%', width: '18px', height: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '7.5pt' }}>A</span>
+                                    <span style={{ border: '1px solid #000', borderRadius: '50%', width: '18px', height: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '7.5pt' }}>B</span>
+                                    <span style={{ border: '1px solid #000', borderRadius: '50%', width: '18px', height: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '7.5pt' }}>C</span>
+                                    <span style={{ border: '1px solid #000', borderRadius: '50%', width: '18px', height: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '7.5pt' }}>D</span>
+                                  </div>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Area Jawaban Esai LJK */}
                 {essayCount > 0 && (
-                  <div className="border border-black p-2.5 text-xs space-y-2.5">
-                    <span className="font-bold block uppercase underline text-[11px]">
+                  <div style={{ border: '1px solid #000', padding: '8px', fontSize: '9.5pt' }}>
+                    <div style={{ fontWeight: 'bold', textTransform: 'uppercase', textDecoration: 'underline', marginBottom: '6px' }}>
                       LEMBAR JAWABAN KHUSUS ESAI / URAIAN:
-                    </span>
-                    <div className="border-b border-dotted border-black h-5"></div>
-                    <div className="border-b border-dotted border-black h-5"></div>
-                    <div className="border-b border-dotted border-black h-5"></div>
-                    <div className="border-b border-dotted border-black h-5"></div>
-                    <div className="border-b border-dotted border-black h-5"></div>
+                    </div>
+                    <div style={{ borderBottom: '1px dotted #000', height: '22px', margin: '4px 0' }}></div>
+                    <div style={{ borderBottom: '1px dotted #000', height: '22px', margin: '4px 0' }}></div>
+                    <div style={{ borderBottom: '1px dotted #000', height: '22px', margin: '4px 0' }}></div>
+                    <div style={{ borderBottom: '1px dotted #000', height: '22px', margin: '4px 0' }}></div>
+                    <div style={{ borderBottom: '1px dotted #000', height: '22px', margin: '4px 0' }}></div>
                   </div>
                 )}
               </div>
@@ -1347,6 +1563,20 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
             >
               <Copy className="w-4 h-4 text-slate-600" />
               <span>Salin ke Word</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={isGeneratingPdf}
+              onClick={handleDownloadPdf}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl text-xs flex items-center gap-2 cursor-pointer transition shadow-md shadow-rose-200 active:scale-95 disabled:opacity-50"
+            >
+              {isGeneratingPdf ? (
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+              ) : (
+                <FileDown className="w-4 h-4" />
+              )}
+              <span>{isGeneratingPdf ? 'Memproses PDF...' : 'Download PDF (.pdf)'}</span>
             </button>
 
             <button

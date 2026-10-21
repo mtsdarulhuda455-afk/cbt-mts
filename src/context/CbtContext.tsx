@@ -1037,14 +1037,45 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const loginWithCredentials = (username: string, password: string): { success: boolean; user?: User; error?: string } => {
     const cleanUser = username.trim().toLowerCase();
-    const foundUser = users.find(u => u.username.toLowerCase() === cleanUser || u.nisnOrNip === username.trim());
+    const cleanPass = password.trim();
+
+    // 1. Search in active user state (matching username or NISN/NIP)
+    let foundUser = users.find(u => 
+      (u.username && u.username.toLowerCase() === cleanUser) || 
+      (u.nisnOrNip && u.nisnOrNip.trim() === username.trim()) ||
+      (u.nisnOrNip && u.nisnOrNip.trim().toLowerCase() === cleanUser)
+    );
     
+    // 2. Emergency fallback to INITIAL_USERS if not found in current storage (e.g. freshly deployed to Netlify)
     if (!foundUser) {
-      return { success: false, error: 'Username atau NISN/NIP tidak terdaftar dalam database!' };
+      const emergencyMatch = INITIAL_USERS.find(u => 
+        (u.username && u.username.toLowerCase() === cleanUser) || 
+        (u.nisnOrNip && u.nisnOrNip.trim() === username.trim())
+      );
+      if (emergencyMatch) {
+        foundUser = emergencyMatch;
+        // Merge into active state and local storage so subsequent operations work
+        setUsers(prev => {
+          if (!prev.some(x => x.id === emergencyMatch.id)) {
+            const next = [emergencyMatch, ...prev];
+            localStorage.setItem(`${STORAGE_KEY_PREFIX}users`, JSON.stringify(next));
+            return next;
+          }
+          return prev;
+        });
+      }
     }
 
-    if (foundUser.password && foundUser.password !== password.trim()) {
-      return { success: false, error: 'Kata sandi / Password salah! Silakan periksa kembali.' };
+    if (!foundUser) {
+      return { 
+        success: false, 
+        error: `Username atau NISN/NIP "${username.trim()}" tidak ditemukan dalam database! Jika Anda baru saja mendeploy ke Netlify, silakan gunakan tombol "Pulihkan Database" di bawah untuk memuat database cadangan Anda.` 
+      };
+    }
+
+    const expectedPass = (foundUser.password || '').trim();
+    if (expectedPass && expectedPass !== cleanPass) {
+      return { success: false, error: 'Kata sandi / Password salah! Silakan periksa kembali huruf besar/kecil.' };
     }
 
     const authenticatedUser: User = {

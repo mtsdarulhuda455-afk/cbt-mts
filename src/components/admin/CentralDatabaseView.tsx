@@ -732,6 +732,38 @@ export const CentralDatabaseView: React.FC = () => {
         </div>
       </div>
 
+      {/* Kesiapan Deploy ke Netlify / Hosting Pihak Kedua */}
+      <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-200/80 rounded-2xl p-4 shadow-2xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0 mt-0.5">
+              <Database className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 text-xs sm:text-sm flex items-center gap-2">
+                <span>Panduan Deployment ke Pihak Kedua (Netlify / Vercel / Hosting Sendiri)</span>
+                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded-md uppercase">
+                  Penting
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                Browser pada domain baru (seperti Netlify) memiliki <em>localStorage</em> terisolasi. Agar Anda dan seluruh santri/guru dapat langsung login di domain Netlify:
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2 text-[11px]">
+                <div className="bg-white/80 border border-emerald-200 p-2 rounded-xl">
+                  <strong className="text-emerald-800 block mb-0.5">Metode 1: File Backup JSON (Paling Mudah)</strong>
+                  Klik tombol <strong>"Cadangkan Database"</strong> di atas. Setelah dideploy ke Netlify, di halaman login Netlify langsung klik <strong>"Pulihkan Database (.json)"</strong>. Seluruh data aktif seketika.
+                </div>
+                <div className="bg-white/80 border border-indigo-200 p-2 rounded-xl">
+                  <strong className="text-indigo-800 block mb-0.5">Metode 2: Cloud Firestore (Otomatis)</strong>
+                  Klik tombol <strong>"Unggah ke Firebase"</strong> di atas. Saat membuka aplikasi di Netlify, sistem akan otomatis menarik data akun dari cloud.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Main Sub-Tabs & Action Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2 p-1 bg-slate-200/70 rounded-2xl">
