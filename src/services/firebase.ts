@@ -69,18 +69,7 @@ export function isQuotaError(err: unknown): boolean {
   );
 }
 
-let memoryQuotaExhausted: boolean = (() => {
-  try {
-    const val = sessionStorage.getItem(QUOTA_STORAGE_KEY);
-    if (val) {
-      const data = JSON.parse(val);
-      if (data && data.exhausted && (Date.now() - data.time < 12 * 3600 * 1000)) {
-        return true;
-      }
-    }
-  } catch {}
-  return false;
-})();
+let memoryQuotaExhausted: boolean = false;
 
 export function isFirestoreQuotaExhausted(): boolean {
   return memoryQuotaExhausted;
@@ -88,13 +77,12 @@ export function isFirestoreQuotaExhausted(): boolean {
 
 export function markQuotaExhausted(exhausted: boolean = true) {
   memoryQuotaExhausted = exhausted;
-  try {
-    if (exhausted) {
-      sessionStorage.setItem(QUOTA_STORAGE_KEY, JSON.stringify({ exhausted: true, time: Date.now() }));
-    } else {
-      sessionStorage.removeItem(QUOTA_STORAGE_KEY);
-    }
-  } catch {}
+  if (exhausted) {
+    // Automatically reset probe after 2 minutes instead of 12 hours
+    setTimeout(() => {
+      memoryQuotaExhausted = false;
+    }, 2 * 60 * 1000);
+  }
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
@@ -119,23 +107,130 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
  * Test connectivity to Firestore cloud database
  */
 export async function testFirestoreConnection(): Promise<boolean> {
-  if (isFirestoreQuotaExhausted()) {
-    return false;
-  }
   try {
-    await getDocFromServer(doc(db, 'settings', 'main'));
+    const snap = await getDoc(doc(db, 'settings', 'main'));
     return true;
   } catch (error) {
     if (isQuotaError(error)) {
-      markQuotaExhausted(true);
-      return false;
+      console.warn("Firestore write quota reached, read mode preserved.");
+      return true; // Still allow reading!
     }
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn("Firestore offline or waiting for initial online state.");
       return false;
     }
-    // Any other response means we connected to the project endpoint
     return true;
+  }
+}
+
+/**
+ * Save unified master snapshot into Firestore so any device can load it immediately
+ */
+export async function saveCentralDatabaseSnapshot(data: {
+  users: User[];
+  classes: ClassGroup[];
+  exams: Exam[];
+  sessions: StudentExamSession[];
+  settings: SystemSettings;
+  attendance?: AttendanceRecord[];
+  attendanceSettings?: any;
+  apiConfig?: any;
+  auditLogs?: SystemAuditLog[];
+}): Promise<{ success: boolean; message: string }> {
+  try {
+    const timestamp = Date.now();
+    const dateFormatted = new Date().toLocaleDateString('id-ID', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+
+    const snapshotPayload = {
+      updatedAt: timestamp,
+      formattedDate: dateFormatted,
+      schoolName: data.settings?.schoolName || 'MTs. Darul Huda',
+      counts: {
+        users: data.users.length,
+        classes: data.classes.length,
+        exams: data.exams.length,
+        sessions: data.sessions.length,
+        attendance: data.attendance?.length || 0
+      },
+      users: data.users,
+      classes: data.classes,
+      exams: data.exams,
+      sessions: data.sessions,
+      settings: data.settings,
+      attendance: data.attendance || [],
+      attendanceSettings: data.attendanceSettings || {},
+      apiConfig: data.apiConfig || {}
+    };
+
+    const cleanPayload = JSON.parse(JSON.stringify(snapshotPayload));
+    await setDoc(doc(db, 'system_snapshot', 'latest_database'), cleanPayload, { merge: true });
+
+    // Also update settings/main to broadcast change to all listening clients
+    await setDoc(doc(db, 'settings', 'main'), {
+      ...JSON.parse(JSON.stringify(data.settings || {})),
+      lastUpdatedTimestamp: timestamp,
+      appVersion: 'v4.9.5',
+      updateMessage: `Pembaruan database (${data.users.length} akun, ${data.classes.length} rombel, ${data.exams.length} paket ujian) berhasil disinkronkan ke seluruh perangkat.`
+    }, { merge: true });
+
+    return { 
+      success: true, 
+      message: `Snapshot basis data berhasil disimpan di Cloud (${data.users.length} akun). Semua perangkat lain dapat langsung mengakses!` 
+    };
+  } catch (err: any) {
+    console.warn('Gagal menyimpan snapshot ke Firestore:', err);
+    return { success: false, message: err?.message || 'Gagal menyimpan snapshot cloud' };
+  }
+}
+
+/**
+ * Fetch unified master snapshot from Firestore
+ */
+export async function fetchCentralDatabaseSnapshot(): Promise<{
+  hasSnapshot: boolean;
+  updatedAt?: number;
+  schoolName?: string;
+  users: User[];
+  classes: ClassGroup[];
+  exams: Exam[];
+  sessions: StudentExamSession[];
+  settings: Partial<SystemSettings> | null;
+  attendance: AttendanceRecord[];
+  attendanceSettings?: any;
+  apiConfig?: any;
+  auditLogs?: SystemAuditLog[];
+} | null> {
+  try {
+    const snapRef = doc(db, 'system_snapshot', 'latest_database');
+    const snap = await getDoc(snapRef);
+    if (!snap.exists()) {
+      return null;
+    }
+    const data = snap.data();
+    if (!data) return null;
+
+    return {
+      hasSnapshot: true,
+      updatedAt: data.updatedAt || 0,
+      schoolName: data.schoolName || '',
+      users: Array.isArray(data.users) ? data.users : [],
+      classes: Array.isArray(data.classes) ? data.classes : [],
+      exams: Array.isArray(data.exams) ? data.exams : [],
+      sessions: Array.isArray(data.sessions) ? data.sessions : [],
+      settings: data.settings || null,
+      attendance: Array.isArray(data.attendance) ? data.attendance : [],
+      attendanceSettings: data.attendanceSettings || null,
+      apiConfig: data.apiConfig || null,
+      auditLogs: Array.isArray(data.auditLogs) ? data.auditLogs : []
+    };
+  } catch (err) {
+    console.warn('Notice reading central database snapshot from Firestore:', err);
+    return null;
   }
 }
 
@@ -159,8 +254,22 @@ export async function fetchAllFirebaseData(): Promise<{
   let auditLogs: SystemAuditLog[] = [];
   let attendance: AttendanceRecord[] = [];
 
-  if (isFirestoreQuotaExhausted()) {
-    return { users, classes, exams, sessions, settings, auditLogs, attendance };
+  // Priority 1: Check Central Master Snapshot (Fast, 1 Read operation for all devices)
+  try {
+    const snapshot = await fetchCentralDatabaseSnapshot();
+    if (snapshot && (snapshot.users.length > 0 || snapshot.exams.length > 0)) {
+      return {
+        users: snapshot.users,
+        classes: snapshot.classes,
+        exams: snapshot.exams,
+        sessions: snapshot.sessions,
+        settings: snapshot.settings,
+        auditLogs: snapshot.auditLogs || [],
+        attendance: snapshot.attendance || []
+      };
+    }
+  } catch (snapErr) {
+    console.warn('Notice reading central snapshot:', snapErr);
   }
 
   // 1. Users
@@ -337,31 +446,66 @@ export async function pushAllToFirestore(data: {
     const ops: WriteOp[] = [];
 
     if (data.users && Array.isArray(data.users)) {
-      data.users.forEach(u => ops.push({ coll: 'users', id: u.id, data: u }));
+      data.users.forEach((u, idx) => {
+        const safeId = String(u.id || u.username || `user_${idx + 1}`);
+        ops.push({ coll: 'users', id: safeId, data: { ...u, id: safeId } });
+      });
     }
     if (data.classes && Array.isArray(data.classes)) {
-      data.classes.forEach(c => ops.push({ coll: 'classes', id: c.id, data: c }));
+      data.classes.forEach((c, idx) => {
+        const safeId = String(c.id || c.name || `class_${idx + 1}`);
+        ops.push({ coll: 'classes', id: safeId, data: { ...c, id: safeId } });
+      });
     }
     if (data.exams && Array.isArray(data.exams)) {
-      data.exams.forEach(e => ops.push({ coll: 'exams', id: e.id, data: e }));
+      data.exams.forEach((e, idx) => {
+        const safeId = String(e.id || e.code || `exam_${idx + 1}`);
+        ops.push({ coll: 'exams', id: safeId, data: { ...e, id: safeId } });
+      });
     }
     if (data.sessions && Array.isArray(data.sessions)) {
-      data.sessions.forEach(s => ops.push({ coll: 'sessions', id: s.id, data: s }));
+      data.sessions.forEach((s, idx) => {
+        const safeId = String(s.id || `session_${idx + 1}`);
+        ops.push({ coll: 'sessions', id: safeId, data: { ...s, id: safeId } });
+      });
     }
     if (data.settings) {
       ops.push({ coll: 'settings', id: 'main', data: data.settings });
     }
     if (data.attendance && Array.isArray(data.attendance)) {
-      data.attendance.forEach(a => ops.push({ coll: 'attendance', id: a.id, data: a }));
+      data.attendance.forEach((a, idx) => {
+        const safeId = String(a.id || `att_${idx + 1}`);
+        ops.push({ coll: 'attendance', id: safeId, data: { ...a, id: safeId } });
+      });
     }
     if (data.auditLogs && Array.isArray(data.auditLogs)) {
-      data.auditLogs.slice(-150).forEach(l => ops.push({ coll: 'auditLogs', id: l.id, data: l }));
+      data.auditLogs.slice(-150).forEach((l, idx) => {
+        const safeId = String(l.id || `log_${idx + 1}`);
+        ops.push({ coll: 'auditLogs', id: safeId, data: { ...l, id: safeId } });
+      });
     }
     if (data.attendanceSettings) {
       ops.push({ coll: 'attendanceSettings', id: 'main', data: data.attendanceSettings });
     }
     if (data.apiConfig) {
       ops.push({ coll: 'apiConfig', id: 'main', data: data.apiConfig });
+    }
+
+    // Simultaneously save master snapshot document for instant multi-device sync
+    try {
+      await saveCentralDatabaseSnapshot({
+        users: data.users || [],
+        classes: data.classes || [],
+        exams: data.exams || [],
+        sessions: data.sessions || [],
+        settings: (data.settings || {}) as SystemSettings,
+        attendance: data.attendance || [],
+        attendanceSettings: data.attendanceSettings,
+        apiConfig: data.apiConfig,
+        auditLogs: data.auditLogs?.slice(-50),
+      });
+    } catch (snapErr) {
+      console.warn('Notice saving central snapshot during pushAllToFirestore:', snapErr);
     }
 
     // Commit in safe chunks of 400 (Firestore writeBatch limit is 500)
@@ -444,6 +588,18 @@ export async function seedInitialDataIfEmpty(initial: {
     return;
   }
   try {
+    // Check if a master snapshot already exists in Firestore before seeding default data
+    try {
+      const snapDoc = await getDoc(doc(db, 'system_snapshot', 'latest_database'));
+      if (snapDoc.exists()) {
+        const snapData = snapDoc.data();
+        if (snapData && Array.isArray(snapData.users) && snapData.users.length > 0) {
+          console.log('⚡ Master database snapshot already active in Firestore. Preserving uploaded database.');
+          return;
+        }
+      }
+    } catch { /* proceed to check collection */ }
+
     const usersSnap = await getDocs(collection(db, 'users'));
     if (usersSnap.empty) {
       console.log('⚡ Initializing Firebase Firestore with default Madrasah data...');

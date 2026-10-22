@@ -66,6 +66,7 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
   // Copy toast state
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
+  const [pdfProgressText, setPdfProgressText] = useState<string>('Download PDF');
 
   if (!isOpen || !exam) return null;
 
@@ -449,42 +450,96 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
     }
   };
 
-  // Direct PDF Download using html2pdf.js
+  // Direct Multi-Page PDF Download using jsPDF and html2canvas
   const handleDownloadPdf = async () => {
     const printElement = document.getElementById('printable-exam-paper');
-    if (!printElement) return;
+    if (!printElement) {
+      alert('Elemen naskah soal tidak ditemukan.');
+      return;
+    }
 
     setIsGeneratingPdf(true);
+    setPdfProgressText('Menyiapkan...');
+
     try {
-      const html2pdfModule = await import('html2pdf.js');
-      const html2pdf = (html2pdfModule as any).default || html2pdfModule;
+      const { jsPDF } = await import('jspdf');
+      const html2canvasModule = await import('html2canvas');
+      const html2canvas = html2canvasModule.default || html2canvasModule;
 
-      const opt = {
-        margin: [10, 12, 12, 12],
-        filename: `Naskah-Soal-${exam.code}-${printMode}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
-        jsPDF: { 
-          unit: 'mm', 
-          format: paperSize === 'F4' ? [215, 330] : 'a4', 
-          orientation: 'portrait' 
-        },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-      };
+      setPdfProgressText('Merender...');
 
-      await html2pdf().set(opt).from(printElement).save();
+      // Render high-res canvas (scale 2 for crisp vector/equation rendering)
+      const canvas = await html2canvas(printElement, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        windowWidth: 850
+      });
+
+      setPdfProgressText('Menyusun PDF...');
+
+      const pageWidthMm = paperSize === 'F4' ? 215 : 210;
+      const pageHeightMm = paperSize === 'F4' ? 330 : 297;
+
+      // Calculate how many pixels of canvas equal 1 PDF page
+      const pageHeightPx = Math.floor((canvas.width * pageHeightMm) / pageWidthMm);
+      const totalPages = Math.ceil(canvas.height / pageHeightPx);
+
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: paperSize === 'F4' ? [215, 330] : 'a4'
+      });
+
+      for (let i = 0; i < totalPages; i++) {
+        setPdfProgressText(`Hal ${i + 1}/${totalPages}...`);
+
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = canvas.width;
+        const currentSliceHeight = Math.min(pageHeightPx, canvas.height - i * pageHeightPx);
+        pageCanvas.height = currentSliceHeight;
+
+        const ctx = pageCanvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+          ctx.drawImage(
+            canvas,
+            0, i * pageHeightPx, canvas.width, currentSliceHeight,
+            0, 0, pageCanvas.width, currentSliceHeight
+          );
+        }
+
+        const pageImgData = pageCanvas.toDataURL('image/jpeg', 0.95);
+        if (i > 0) {
+          pdf.addPage();
+        }
+
+        const sliceHeightMm = (currentSliceHeight * pageWidthMm) / canvas.width;
+        pdf.addImage(pageImgData, 'JPEG', 0, 0, pageWidthMm, sliceHeightMm);
+      }
+
+      setPdfProgressText('Menyimpan...');
+      const fileName = `Naskah-Soal-${exam.code}-${printMode}.pdf`;
+      pdf.save(fileName);
 
       addAuditLog(
         'DOWNLOAD_EXAM_PDF',
         'exam',
-        `Mengunduh berkas naskah soal format PDF langsung ${exam.code}`,
+        `Berhasil mengunduh berkas naskah soal PDF: ${fileName} (${totalPages} halaman)`,
         'info'
       );
-    } catch (err) {
-      console.warn('Notice generating client PDF, falling back to print dialog:', err);
+
+      setCopySuccess(`Berkas PDF ${fileName} (${totalPages} Halaman) berhasil diunduh ke komputer Anda!`);
+      setTimeout(() => setCopySuccess(null), 5000);
+    } catch (err: any) {
+      console.warn('Gagal membuat PDF via canvas, mengalihkan ke dialog cetak browser:', err);
+      alert('Pemberitahuan: Pembuatan berkas PDF dialihkan ke dialog cetak browser (Pilih "Save as PDF" / "Simpan sebagai PDF").');
       handlePrint();
     } finally {
       setIsGeneratingPdf(false);
+      setPdfProgressText('Download PDF');
     }
   };
   const handleDownloadHtml = () => {
@@ -606,7 +661,7 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
                 ) : (
                   <FileDown className="w-4 h-4" />
                 )}
-                <span>{isGeneratingPdf ? 'Membuat PDF...' : 'Download PDF'}</span>
+                <span>{isGeneratingPdf ? (pdfProgressText || 'Membuat PDF...') : 'Download PDF'}</span>
               </button>
 
               <button
@@ -1576,7 +1631,7 @@ export const PrintExamModal: React.FC<PrintExamModalProps> = ({
               ) : (
                 <FileDown className="w-4 h-4" />
               )}
-              <span>{isGeneratingPdf ? 'Memproses PDF...' : 'Download PDF (.pdf)'}</span>
+              <span>{isGeneratingPdf ? (pdfProgressText || 'Memproses PDF...') : 'Download PDF (.pdf)'}</span>
             </button>
 
             <button

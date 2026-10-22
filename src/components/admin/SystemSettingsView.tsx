@@ -1762,13 +1762,18 @@ export const SystemSettingsView: React.FC = () => {
                       const file = e.target.files?.[0];
                       if (!file) return;
                       const reader = new FileReader();
-                      reader.onload = (event) => {
-                        const content = event.target?.result as string;
-                        const res = importDatabaseJson(content);
-                        const isSuccess = typeof res === 'boolean' ? res : res.success;
-                        const msg = typeof res === 'object' ? res.message : (isSuccess ? 'Basis data berhasil dipulihkan!' : 'Gagal memulihkan file');
-                        setBackupRestoreStatus(msg);
-                        setTimeout(() => setBackupRestoreStatus(null), 8000);
+                      reader.onload = async (event) => {
+                        setBackupRestoreStatus('Memulihkan & menyinkronkan data ke Cloud Firebase...');
+                        try {
+                          const content = event.target?.result as string;
+                          const res = await importDatabaseJson(content);
+                          const isSuccess = typeof res === 'boolean' ? res : res.success;
+                          const msg = typeof res === 'object' ? res.message : (isSuccess ? 'Basis data berhasil dipulihkan!' : 'Gagal memulihkan file');
+                          setBackupRestoreStatus(msg);
+                        } catch (err: any) {
+                          setBackupRestoreStatus(`Gagal memulihkan: ${err?.message || 'Format tidak valid'}`);
+                        }
+                        setTimeout(() => setBackupRestoreStatus(null), 10000);
                       };
                       reader.readAsText(file);
                       if (e.target) e.target.value = '';

@@ -430,30 +430,36 @@ export const CentralDatabaseView: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setImportStatus('Memproses file cadangan dan menyinkronkan ke Cloud Firebase...');
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      const res = importDatabaseJson(content);
-      const isSuccess = typeof res === 'boolean' ? res : res.success;
-      if (isSuccess) {
-        const msg = typeof res === 'object' ? res.message : 'Basis data CBT berhasil dipulihkan dari file JSON!';
-        setImportStatus(msg);
-        setRestoreModalData({
-          isOpen: true,
-          success: true,
-          message: msg,
-          counts: typeof res === 'object' ? res.counts : undefined
-        });
-      } else {
-        const errorMsg = typeof res === 'object' ? res.message : 'Gagal memulihkan: Format file JSON tidak valid.';
-        setImportStatus(errorMsg);
-        setRestoreModalData({
-          isOpen: true,
-          success: false,
-          message: errorMsg
-        });
+    reader.onload = async (event) => {
+      try {
+        const content = event.target?.result as string;
+        setImportStatus('Menyimpan data & menyinkronkan ke Cloud Firestore agar semua perangkat terhubung...');
+        const res = await importDatabaseJson(content);
+        const isSuccess = typeof res === 'boolean' ? res : res.success;
+        if (isSuccess) {
+          const msg = typeof res === 'object' ? res.message : 'Basis data CBT berhasil dipulihkan dari file JSON!';
+          setImportStatus(msg);
+          setRestoreModalData({
+            isOpen: true,
+            success: true,
+            message: msg,
+            counts: typeof res === 'object' ? res.counts : undefined
+          });
+        } else {
+          const errorMsg = typeof res === 'object' ? res.message : 'Gagal memulihkan: Format file JSON tidak valid.';
+          setImportStatus(errorMsg);
+          setRestoreModalData({
+            isOpen: true,
+            success: false,
+            message: errorMsg
+          });
+        }
+      } catch (err: any) {
+        setImportStatus(`Kesalahan: ${err?.message || 'Gagal memproses berkas'}`);
       }
-      setTimeout(() => setImportStatus(null), 8000);
+      setTimeout(() => setImportStatus(null), 10000);
     };
     reader.readAsText(file);
     if (e.target) e.target.value = '';
@@ -561,7 +567,7 @@ export const CentralDatabaseView: React.FC = () => {
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-                Saat Anda mengklik tombol <strong>Cadangkan Database</strong>, semua basis data madrasah (akun santri & guru, rombel/kelas, paket soal ujian, riwayat jawaban santri, presensi barcode, dan pengaturan CBT) disimpan ke dalam <strong>1 file cadangan tunggal</strong>. Saat dipulihkan, seluruh data dijamin utuh dan langsung disinkronkan kembali.
+                Saat Anda mengklik tombol <strong>Cadangkan Database</strong>, semua basis data madrasah (akun santri & guru, rombel/kelas, paket soal ujian, riwayat jawaban santri, presensi barcode, dan pengaturan CBT) disimpan ke dalam <strong>1 file cadangan tunggal</strong>. Saat dipulihkan, seluruh data langsung <strong>tersinkronisasi ke Cloud Firebase</strong> sehingga siapapun yang membuka link aplikasi di perangkat manapun (ponsel siswa, laptop guru) dapat langsung masuk ke akunnya tanpa harus upload file lagi.
               </p>
             </div>
           </div>

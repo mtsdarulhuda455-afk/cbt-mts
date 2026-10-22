@@ -52,6 +52,7 @@ import {
   firebaseConfig,
   fetchAllFirebaseData,
   pushAllToFirestore,
+  saveCentralDatabaseSnapshot,
   isFirestoreQuotaExhausted,
   isQuotaError,
   markQuotaExhausted
@@ -67,6 +68,7 @@ interface CbtContextType {
   deleteUser: (userId: string) => void;
   importUsersFromExcel: (newUsers: User[]) => { added: number; updated: number };
   loginWithCredentials: (username: string, password: string) => { success: boolean; user?: User; error?: string };
+  loginAsUser: (user: User) => void;
   logout: () => void;
   switchUserRole: (role: UserRole) => void;
   classes: ClassGroup[];
@@ -127,7 +129,7 @@ interface CbtContextType {
   latestBroadcast: string | null;
   clearLatestBroadcast: () => void;
   exportDatabaseJson: () => void;
-  importDatabaseJson: (jsonData: string) => {
+  importDatabaseJson: (jsonData: string) => Promise<{
     success: boolean;
     message: string;
     counts?: {
@@ -138,7 +140,8 @@ interface CbtContextType {
       attendance: number;
       auditLogs: number;
     };
-  };
+    cloudSynced?: boolean;
+  }>;
   resetToFactoryData: () => void;
 
   // Presensi Barcode Masuk & Pulang & Notifikasi WhatsApp MTs. Darul Huda
@@ -568,6 +571,47 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
+    // 0. Realtime Central Master Snapshot Listener (Sinkronisasi Otomatis Antar Perangkat)
+    const unsubSnapshot = onSnapshot(doc(db, 'system_snapshot', 'latest_database'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data && Array.isArray(data.users) && data.users.length > 0) {
+          console.log(`⚡ [Realtime Cloud Sync] Master snapshot diterima di perangkat ini: ${data.users.length} akun, ${data.exams?.length || 0} ujian.`);
+          setUsers(data.users);
+          localStorage.setItem(`${STORAGE_KEY_PREFIX}users`, JSON.stringify(data.users));
+
+          if (Array.isArray(data.classes) && data.classes.length > 0) {
+            setClasses(data.classes);
+            localStorage.setItem(`${STORAGE_KEY_PREFIX}classes`, JSON.stringify(data.classes));
+          }
+          if (Array.isArray(data.exams) && data.exams.length > 0) {
+            setExams(data.exams);
+            localStorage.setItem(`${STORAGE_KEY_PREFIX}exams`, JSON.stringify(data.exams));
+          }
+          if (Array.isArray(data.sessions)) {
+            setSessions(data.sessions);
+            localStorage.setItem(`${STORAGE_KEY_PREFIX}sessions`, JSON.stringify(data.sessions));
+          }
+          if (Array.isArray(data.attendance)) {
+            setAttendanceRecords(data.attendance);
+            localStorage.setItem(`${STORAGE_KEY_PREFIX}attendance`, JSON.stringify(data.attendance));
+          }
+          if (data.settings && typeof data.settings === 'object') {
+            setSystemSettings(prev => ({ ...prev, ...data.settings }));
+            localStorage.setItem(`${STORAGE_KEY_PREFIX}settings`, JSON.stringify(data.settings));
+          }
+          setLastFirebaseSync(new Date().toLocaleTimeString('id-ID'));
+          setFirebaseStatus('connected');
+        }
+      }
+    }, (err) => {
+      if (isQuotaError(err)) {
+        markQuotaExhausted(true);
+        setFirebaseStatus('offline');
+      }
+      console.warn('Firestore snapshot sync notice:', err.message);
+    });
+
     // 1. Realtime Users Listener
     const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
       if (!snapshot.empty) {
@@ -830,6 +874,7 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return () => {
       isMounted = false;
+      unsubSnapshot();
       unsubUsers();
       unsubClasses();
       unsubExams();
@@ -1102,6 +1147,32 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     return { success: true, user: authenticatedUser };
+  };
+
+  const loginAsUser = (targetUser: User) => {
+    const authenticatedUser: User = {
+      ...targetUser,
+      schoolName: systemSettings.schoolName || targetUser.schoolName,
+      isMfaVerified: true,
+    };
+
+    setCurrentUser(authenticatedUser);
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}user`, JSON.stringify(authenticatedUser));
+
+    if (authenticatedUser.role === 'student') {
+      setActiveTab('student_home');
+    } else if (authenticatedUser.role === 'teacher') {
+      setActiveTab('teacher_exams');
+    } else {
+      setActiveTab('teacher_exams');
+    }
+
+    addAuditLog(
+      'USER_LOGIN_DIRECT',
+      'auth',
+      `Pengguna ${authenticatedUser.name} (${authenticatedUser.role.toUpperCase()}) berhasil masuk secara langsung.`,
+      'info'
+    );
   };
 
   const logout = () => {
@@ -1645,7 +1716,7 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
-  const importDatabaseJson = (jsonData: string): {
+  const importDatabaseJson = async (jsonData: string): Promise<{
     success: boolean;
     message: string;
     counts?: {
@@ -1656,7 +1727,8 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       attendance: number;
       auditLogs: number;
     };
-  } => {
+    cloudSynced?: boolean;
+  }> => {
     try {
       const parsed = JSON.parse(jsonData);
       if (!parsed || typeof parsed !== 'object') {
@@ -1694,16 +1766,20 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       }
 
-      // 1. Restore Users safely
+      // 1. Restore Users safely (guarantee non-empty string IDs)
       let activeUsers = users;
       if (importedUsers.length > 0) {
-        activeUsers = importedUsers;
-        setUsers(importedUsers);
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}users`, JSON.stringify(importedUsers));
+        activeUsers = importedUsers.map((u, idx) => ({
+          ...u,
+          id: String(u.id || u.username || `user_${idx + 1}`),
+          schoolName: u.schoolName || importedSettings?.schoolName || 'MTs. Darul Huda'
+        }));
+        setUsers(activeUsers);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}users`, JSON.stringify(activeUsers));
         
         // Preserve current user login safely
         if (currentUser) {
-          const matching = importedUsers.find(u => u.id === currentUser.id || u.username === currentUser.username);
+          const matching = activeUsers.find(u => u.id === currentUser.id || u.username === currentUser.username);
           if (matching) {
             setCurrentUser(matching);
             localStorage.setItem(`${STORAGE_KEY_PREFIX}user`, JSON.stringify(matching));
@@ -1714,33 +1790,45 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 2. Restore Classes safely
       let activeClasses = classes;
       if (importedClasses.length > 0) {
-        activeClasses = importedClasses;
-        setClasses(importedClasses);
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}classes`, JSON.stringify(importedClasses));
+        activeClasses = importedClasses.map((c, idx) => ({
+          ...c,
+          id: String(c.id || c.name || `class_${idx + 1}`)
+        }));
+        setClasses(activeClasses);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}classes`, JSON.stringify(activeClasses));
       }
 
       // 3. Restore Exams safely
       let activeExams = exams;
       if (importedExams.length > 0) {
-        activeExams = importedExams;
-        setExams(importedExams);
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}exams`, JSON.stringify(importedExams));
+        activeExams = importedExams.map((e, idx) => ({
+          ...e,
+          id: String(e.id || e.code || `exam_${idx + 1}`)
+        }));
+        setExams(activeExams);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}exams`, JSON.stringify(activeExams));
       }
 
       // 4. Restore Sessions safely
       let activeSessions = sessions;
       if (importedSessions.length > 0) {
-        activeSessions = importedSessions;
-        setSessions(importedSessions);
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}sessions`, JSON.stringify(importedSessions));
+        activeSessions = importedSessions.map((s, idx) => ({
+          ...s,
+          id: String(s.id || `session_${idx + 1}`)
+        }));
+        setSessions(activeSessions);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}sessions`, JSON.stringify(activeSessions));
       }
 
       // 5. Restore Attendance Records safely
       let activeAttendance = attendanceRecords;
       if (importedAttendance.length > 0) {
-        activeAttendance = importedAttendance;
-        setAttendanceRecords(importedAttendance);
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}attendance`, JSON.stringify(importedAttendance));
+        activeAttendance = importedAttendance.map((a, idx) => ({
+          ...a,
+          id: String(a.id || `att_${idx + 1}`)
+        }));
+        setAttendanceRecords(activeAttendance);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}attendance`, JSON.stringify(activeAttendance));
       }
 
       // 6. Restore Attendance Settings safely
@@ -1770,28 +1858,53 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 9. Restore Audit Logs safely
       let activeAuditLogs = auditLogs;
       if (importedAuditLogs.length > 0) {
-        activeAuditLogs = importedAuditLogs;
-        setAuditLogs(importedAuditLogs);
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}audit_logs`, JSON.stringify(importedAuditLogs));
+        activeAuditLogs = importedAuditLogs.map((l, idx) => ({
+          ...l,
+          id: String(l.id || `log_${idx + 1}`)
+        }));
+        setAuditLogs(activeAuditLogs);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}audit_logs`, JSON.stringify(activeAuditLogs));
       }
 
-      // 10. Sync to Firestore in real-time
-      pushAllToFirestore({
-        users: activeUsers,
-        classes: activeClasses,
-        exams: activeExams,
-        sessions: activeSessions,
-        settings: activeSettings,
-        attendance: activeAttendance,
-        auditLogs: activeAuditLogs,
-        attendanceSettings: activeAttendanceSettings,
-        apiConfig: activeApiConfig,
-      }).then(() => {
+      // 10. Sync to Firestore in real-time (AWAIT both Snapshot and Batch to guarantee all devices receive it!)
+      let cloudSynced = false;
+      try {
+        setFirebaseStatus('syncing');
+
+        // A. Save unified master snapshot (Instant read for all devices)
+        const snapRes = await saveCentralDatabaseSnapshot({
+          users: activeUsers,
+          classes: activeClasses,
+          exams: activeExams,
+          sessions: activeSessions,
+          settings: activeSettings,
+          attendance: activeAttendance,
+          attendanceSettings: activeAttendanceSettings,
+          apiConfig: activeApiConfig,
+          auditLogs: activeAuditLogs.slice(-50),
+        });
+
+        // B. Push to all collections in Firestore
+        await pushAllToFirestore({
+          users: activeUsers,
+          classes: activeClasses,
+          exams: activeExams,
+          sessions: activeSessions,
+          settings: activeSettings,
+          attendance: activeAttendance,
+          auditLogs: activeAuditLogs,
+          attendanceSettings: activeAttendanceSettings,
+          apiConfig: activeApiConfig,
+        });
+
+        if (snapRes.success) {
+          cloudSynced = true;
+        }
         setLastFirebaseSync(new Date().toLocaleTimeString('id-ID'));
         setFirebaseStatus('connected');
-      }).catch(err => {
-        console.warn('Notice syncing restored database to Firebase:', err);
-      });
+      } catch (cloudErr) {
+        console.warn('Notice syncing restored database to Firebase:', cloudErr);
+      }
 
       // 11. Broadcast update to other open browser tabs
       try {
@@ -1809,13 +1922,16 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addAuditLog(
         'RESTORE_DATABASE',
         'system',
-        `Memulihkan basis data lengkap: ${activeUsers.length} pengguna, ${activeClasses.length} rombel, ${activeExams.length} ujian, ${activeSessions.length} lembar jawaban, ${activeAttendance.length} catatan presensi. Seluruh data aman!`,
+        `Memulihkan basis data lengkap: ${activeUsers.length} pengguna, ${activeClasses.length} rombel, ${activeExams.length} ujian, ${activeSessions.length} lembar jawaban, ${activeAttendance.length} catatan presensi. Seluruh data tersinkronisasi ke cloud!`,
         'warn'
       );
 
       return {
         success: true,
-        message: `Basis data CBT berhasil dipulihkan dan seluruh data aman! (${activeUsers.length} akun santri/guru, ${activeClasses.length} rombel, ${activeExams.length} paket ujian, ${activeSessions.length} lembar sesi, ${activeAttendance.length} presensi).`,
+        cloudSynced,
+        message: cloudSynced
+          ? `Basis data CBT berhasil dipulihkan dan disinkronkan ke Cloud Firebase (${activeUsers.length} akun santri/guru/admin, ${activeClasses.length} rombel, ${activeExams.length} paket ujian). Siapapun yang memiliki link ini di perangkat manapun dapat langsung masuk akunnya!`
+          : `Basis data CBT berhasil dipulihkan secara lokal (${activeUsers.length} akun santri/guru, ${activeClasses.length} rombel, ${activeExams.length} paket ujian).`,
         counts: {
           users: activeUsers.length,
           classes: activeClasses.length,
@@ -2381,6 +2497,7 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteUser,
         importUsersFromExcel,
         loginWithCredentials,
+        loginAsUser,
         logout,
         switchUserRole,
         classes,

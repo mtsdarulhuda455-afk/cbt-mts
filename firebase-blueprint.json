@@ -88,6 +88,16 @@
         "level": { "type": "string" }
       },
       "required": ["id", "timestamp", "action"]
+    },
+    "DatabaseSnapshot": {
+      "title": "DatabaseSnapshot",
+      "description": "Snapshot cadangan database lengkap untuk sinkronisasi multi-perangkat instan",
+      "type": "object",
+      "properties": {
+        "updatedAt": { "type": "number" },
+        "formattedDate": { "type": "string" },
+        "schoolName": { "type": "string" }
+      }
     }
   },
   "firestore": {
@@ -110,6 +120,10 @@
     "/settings/main": {
       "schema": "SystemSettings",
       "description": "Dokumen konfigurasi parameter madrasah"
+    },
+    "/system_snapshot/{snapshotId}": {
+      "schema": "DatabaseSnapshot",
+      "description": "Dokumen snapshot basis data terpadu untuk sinkronisasi instan antar perangkat"
     },
     "/auditLogs/{logId}": {
       "schema": "SystemAuditLog",
