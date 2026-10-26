@@ -1,0 +1,127 @@
+# ==============================================================================
+# EduExam CBT Pro - Apache / LiteSpeed Configuration for Hostinger
+# PHP Requirement: Minimum PHP 8.2 (Forward-Compatible: 8.2, 8.3, 8.4, 8.5+)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. MIME TYPES (CRITICAL FOR LITESPEED / HOSTINGER TO PREVENT BLANK SCREEN)
+# ------------------------------------------------------------------------------
+# Hostinger LiteSpeed can default JavaScript ES modules to text/plain, which
+# causes browsers to block scripts and render a blank white screen.
+<IfModule mod_mime.c>
+  AddType text/javascript .js .mjs .tsx .ts
+  AddType text/css .css
+  AddType application/json .json
+  AddType image/svg+xml .svg
+  AddType font/woff .woff
+  AddType font/woff2 .woff2
+</IfModule>
+
+<IfModule mime_module>
+  AddType application/x-httpd-php .php .php8 .phtml
+  AddType text/javascript .js .mjs .tsx .ts
+  AddType text/css .css
+</IfModule>
+
+# ------------------------------------------------------------------------------
+# 2. PHP FORWARD-COMPATIBLE HANDLER (MINIMUM PHP 8.2 / 8.3 / 8.4 / 8.5+)
+# ------------------------------------------------------------------------------
+# In Hostinger (LiteSpeed & Apache), the PHP version is determined dynamically
+# by hPanel PHP Selector. This flexible configuration ensures scripts execute
+# smoothly on PHP 8.2, 8.3, 8.4, 8.5, and above without single-version lock.
+<FilesMatch "\.(php|phtml)$">
+  <IfModule !mod_php.c>
+    # Dynamic runtime delegated to Hostinger hPanel selected PHP version
+  </IfModule>
+</FilesMatch>
+
+# Environment indicator for minimum required PHP version
+<IfModule mod_env.c>
+  SetEnv MIN_PHP_VERSION 8.2
+  SetEnv PHP_FORWARD_COMPATIBLE 1
+</IfModule>
+
+# ------------------------------------------------------------------------------
+# 3. CORS & SECURITY HEADERS
+# ------------------------------------------------------------------------------
+<IfModule mod_headers.c>
+  Header set Access-Control-Allow-Origin "*"
+  Header set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+  Header set Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  Header set X-Content-Type-Options "nosniff"
+  Header set X-Frame-Options "SAMEORIGIN"
+  Header set X-XSS-Protection "1; mode=block"
+  Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# ------------------------------------------------------------------------------
+# 4. REWRITE RULES (SPA + PHP 8.2 API ROUTING - SUBDIRECTORY & ROOT COMPATIBLE)
+# ------------------------------------------------------------------------------
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Handle CORS preflight early
+  RewriteCond %{REQUEST_METHOD} OPTIONS
+  RewriteRule ^(.*)$ $1 [R=200,L]
+
+  # Direct pass-through for assets, api, and data folders (bypass rewrite checks)
+  RewriteRule ^assets/(.*)$ assets/$1 [L,NC]
+  RewriteRule ^api/(.*)$ api/$1 [L,NC]
+  RewriteRule ^data/(.*)$ data/$1 [L,NC]
+
+  # Redirect raw source code requests (src/main.tsx) on Hostinger to compiled production bundle
+  RewriteRule ^src/main\.tsx$ assets/index.js [L,NC]
+  RewriteRule ^src/(.*)$ assets/index.js [L,NC]
+
+  # Ensure directories have a trailing slash so relative paths (./assets/...) resolve properly
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteCond %{REQUEST_URI} !(.*)/$
+  RewriteRule ^(.*)$ $1/ [R=301,L]
+
+  # Route api/database/* and api/health to PHP backend relative to current folder
+  RewriteRule ^api/database/latest/?$ api/index.php?action=latest [QSA,L]
+  RewriteRule ^api/database/sync/?$ api/index.php?action=sync [QSA,L]
+  RewriteRule ^api/database/status/?$ api/index.php?action=status [QSA,L]
+  RewriteRule ^api/database/sync-firebase/?$ api/index.php?action=sync-firebase [QSA,L]
+  RewriteRule ^api/health/?$ api/index.php?action=health [QSA,L]
+  RewriteRule ^health/?$ api/index.php?action=health [QSA,L]
+
+  # If requested resource is an existing file or directory, serve it directly
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Never return index.html for truly non-existent static assets (prevents HTML parsing errors)
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_URI} \.(js|mjs|css|json|png|jpg|jpeg|svg|ico|woff|woff2|ttf|map)$ [NC]
+  RewriteRule ^ - [R=404,L]
+
+  # React SPA fallback: redirect all other requests to index.html in current folder
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# ------------------------------------------------------------------------------
+# 5. GZIP / DEFLATE COMPRESSION
+# ------------------------------------------------------------------------------
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json application/xml image/svg+xml
+</IfModule>
+
+# ------------------------------------------------------------------------------
+# 6. CACHING FOR STATIC ASSETS (With bypass for HTML to avoid stale bundles)
+# ------------------------------------------------------------------------------
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/html "access plus 0 seconds"
+  ExpiresByType image/jpg "access plus 1 month"
+  ExpiresByType image/jpeg "access plus 1 month"
+  ExpiresByType image/gif "access plus 1 month"
+  ExpiresByType image/png "access plus 1 month"
+  ExpiresByType image/svg+xml "access plus 1 month"
+  ExpiresByType text/css "access plus 1 month"
+  ExpiresByType text/javascript "access plus 1 month"
+  ExpiresByType application/javascript "access plus 1 month"
+  ExpiresByType application/json "access plus 0 seconds"
+  ExpiresDefault "access plus 2 days"
+</IfModule>

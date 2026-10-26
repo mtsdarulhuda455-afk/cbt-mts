@@ -187,23 +187,22 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleDirectInstantLogin(usr)}
-                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer transition flex items-center gap-1 shadow-2xs"
-                      title="Langsung login masuk"
-                    >
-                      <Zap className="w-3 h-3" />
-                      <span>Masuk</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSelectUser(usr)}
-                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-semibold cursor-pointer"
-                      title="Masuk via verifikasi OTP/MFA"
-                    >
-                      OTP
-                    </button>
+                    {usr.role === 'student' ? (
+                      <button
+                        type="button"
+                        onClick={() => handleDirectInstantLogin(usr)}
+                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer transition flex items-center gap-1 shadow-2xs"
+                        title="Langsung login masuk"
+                      >
+                        <Zap className="w-3 h-3" />
+                        <span>Pilih Siswa</span>
+                      </button>
+                    ) : (
+                      <span className="text-[11px] text-slate-500 bg-slate-100 border border-slate-200 px-2 py-1 rounded-lg flex items-center gap-1 font-medium">
+                        <Lock className="w-3 h-3 text-amber-600" />
+                        <span>Ketik Manual</span>
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

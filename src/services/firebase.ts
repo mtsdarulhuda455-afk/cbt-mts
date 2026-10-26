@@ -104,12 +104,13 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 }
 
 /**
- * Test connectivity to Firestore cloud database
+ * Test connectivity to Firestore cloud database with 2.5s timeout
  */
 export async function testFirestoreConnection(): Promise<boolean> {
   try {
-    const snap = await getDoc(doc(db, 'settings', 'main'));
-    return true;
+    const probePromise = getDoc(doc(db, 'settings', 'main')).then(() => true);
+    const timeoutPromise = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2500));
+    return await Promise.race([probePromise, timeoutPromise]);
   } catch (error) {
     if (isQuotaError(error)) {
       console.warn("Firestore write quota reached, read mode preserved.");
@@ -207,8 +208,10 @@ export async function fetchCentralDatabaseSnapshot(): Promise<{
 } | null> {
   try {
     const snapRef = doc(db, 'system_snapshot', 'latest_database');
-    const snap = await getDoc(snapRef);
-    if (!snap.exists()) {
+    const getDocPromise = getDoc(snapRef);
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
+    const snap = await Promise.race([getDocPromise, timeoutPromise]);
+    if (!snap || typeof snap !== 'object' || !('exists' in snap) || !snap.exists()) {
       return null;
     }
     const data = snap.data();

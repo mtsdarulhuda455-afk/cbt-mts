@@ -23,6 +23,7 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { Exam } from '../../types/cbt';
+import { safeStorage } from '../../utils/safeStorage';
 
 export const StudentHomeView: React.FC = () => {
   const { 
@@ -74,7 +75,7 @@ export const StudentHomeView: React.FC = () => {
 
     // Mark as verified for this student & exam
     if (currentUser?.id) {
-      localStorage.setItem(`cbt_token_${currentUser.id}_${tokenModalExam.id}`, 'verified');
+      safeStorage.setItem(`cbt_token_${currentUser.id}_${tokenModalExam.id}`, 'verified');
     }
     const examId = tokenModalExam.id;
     setTokenModalExam(null);

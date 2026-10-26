@@ -52,8 +52,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, isModal = false
     resetToFactoryData
   } = useCbt();
 
-  // Role Tab State: 'admin' | 'teacher' | 'student' | 'manual'
-  const [activeRoleTab, setActiveRoleTab] = useState<'admin' | 'teacher' | 'student' | 'manual'>('admin');
+  // Role Tab State: 'student' | 'teacher' | 'admin'
+  const [activeRoleTab, setActiveRoleTab] = useState<'student' | 'teacher' | 'admin'>('student');
   
   // Form input state
   const [username, setUsername] = useState('');
@@ -129,11 +129,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, isModal = false
     }, 350);
   };
 
-  const handleQuickFill = (u: string, p: string) => {
+  const handleQuickFill = (u: string, p: string, role: 'student' | 'teacher' | 'admin' = 'student') => {
     setUsername(u);
     setPassword(p);
     setErrorMsg(null);
-    setActiveRoleTab('manual');
+    setActiveRoleTab(role);
   };
 
   // Handle Restore Database from JSON Backup File directly from Login Page
@@ -338,58 +338,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, isModal = false
         )}
 
         {/* ========================================================================= */}
-        {/* ROLE SELECTOR TABS: MEMUDAHKAN ADMIN & GURU MASUK TANPA KETIK MANUAL */}
+        {/* ROLE SELECTOR TABS: SISWA (DENGAN SCROLL), GURU & ADMIN (KETIK MANUAL)   */}
         {/* ========================================================================= */}
-        <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-2xl mb-5 text-xs font-bold">
+        <div className="grid grid-cols-3 gap-1.5 p-1.5 bg-slate-100 rounded-2xl mb-5 text-xs font-bold">
           <button
             type="button"
-            onClick={() => setActiveRoleTab('admin')}
-            className={`py-2 px-1 rounded-xl transition flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
-              activeRoleTab === 'admin'
-                ? 'bg-rose-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            <Shield className="w-3.5 h-3.5" />
-            <span className="text-[11px] leading-none">Admin</span>
-            <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono mt-0.5 ${
-              activeRoleTab === 'admin' ? 'bg-rose-700/80 text-white' : 'bg-slate-200 text-slate-700'
-            }`}>
-              {adminUsers.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveRoleTab('teacher')}
-            className={`py-2 px-1 rounded-xl transition flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
-              activeRoleTab === 'teacher'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            <Briefcase className="w-3.5 h-3.5" />
-            <span className="text-[11px] leading-none">Guru</span>
-            <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono mt-0.5 ${
-              activeRoleTab === 'teacher' ? 'bg-indigo-700/80 text-white' : 'bg-slate-200 text-slate-700'
-            }`}>
-              {teacherUsers.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveRoleTab('student')}
-            className={`py-2 px-1 rounded-xl transition flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+            onClick={() => {
+              setActiveRoleTab('student');
+              setErrorMsg(null);
+            }}
+            className={`py-2 px-2 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer ${
               activeRoleTab === 'student'
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
             }`}
           >
-            <GraduationCap className="w-3.5 h-3.5" />
-            <span className="text-[11px] leading-none">Siswa</span>
-            <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono mt-0.5 ${
-              activeRoleTab === 'student' ? 'bg-emerald-700/80 text-white' : 'bg-slate-200 text-slate-700'
+            <GraduationCap className="w-4 h-4" />
+            <span>Siswa</span>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+              activeRoleTab === 'student' ? 'bg-emerald-700 text-white' : 'bg-slate-200 text-slate-700'
             }`}>
               {studentUsers.length}
             </span>
@@ -397,166 +364,39 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, isModal = false
 
           <button
             type="button"
-            onClick={() => setActiveRoleTab('manual')}
-            className={`py-2 px-1 rounded-xl transition flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
-              activeRoleTab === 'manual'
-                ? 'bg-slate-800 text-white shadow-xs'
+            onClick={() => {
+              setActiveRoleTab('teacher');
+              setErrorMsg(null);
+            }}
+            className={`py-2 px-2 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeRoleTab === 'teacher'
+                ? 'bg-indigo-600 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
             }`}
           >
-            <KeyRound className="w-3.5 h-3.5" />
-            <span className="text-[11px] leading-none">Ketik</span>
-            <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono mt-0.5 ${
-              activeRoleTab === 'manual' ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-700'
-            }`}>
-              Manual
-            </span>
+            <Briefcase className="w-4 h-4" />
+            <span>Guru (Ketik)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveRoleTab('admin');
+              setErrorMsg(null);
+            }}
+            className={`py-2 px-2 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeRoleTab === 'admin'
+                ? 'bg-rose-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Shield className="w-4 h-4" />
+            <span>Admin (Ketik)</span>
           </button>
         </div>
 
         {/* ========================================================================= */}
-        {/* TAB 1: AKUN ADMINISTRATOR CBT (1-KLIK MASUK TANPA KETIK) */}
-        {/* ========================================================================= */}
-        {activeRoleTab === 'admin' && (
-          <div className="space-y-3 animate-in fade-in">
-            <div className="bg-rose-50/70 border border-rose-200/80 rounded-2xl p-3.5 text-xs text-rose-900">
-              <div className="flex items-center gap-2 font-bold mb-1">
-                <Shield className="w-4 h-4 text-rose-600" />
-                <span>Akun Administrator CBT Ditemukan ({adminUsers.length})</span>
-              </div>
-              <p className="text-[11.5px] text-rose-800/90 leading-relaxed">
-                Pilih akun admin di bawah untuk langsung masuk ke panel manajemen tanpa perlu mengetik ulang kata sandi:
-              </p>
-            </div>
-
-            <div className="space-y-2.5">
-              {adminUsers.map((admin) => (
-                <div
-                  key={admin.id}
-                  className="p-3.5 bg-slate-50 border border-slate-200 hover:border-rose-400 rounded-2xl transition hover:shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-extrabold text-xs text-slate-900 truncate">
-                        {admin.name}
-                      </span>
-                      <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-rose-100 text-rose-800 shrink-0">
-                        ADMIN
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-slate-500 font-mono flex flex-wrap items-center gap-2 mt-1">
-                      <span>User: <strong className="text-slate-700">{admin.username}</strong></span>
-                      {admin.nisnOrNip && <span>• NIP: {admin.nisnOrNip}</span>}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      disabled={isLoading}
-                      onClick={() => handleDirectLogin(admin)}
-                      className="w-full sm:w-auto px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-95 transition disabled:opacity-50"
-                    >
-                      <Zap className="w-3.5 h-3.5" />
-                      <span>Masuk Admin</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleQuickFill(admin.username, admin.password || 'admin123')}
-                      className="px-2.5 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold cursor-pointer"
-                      title="Isi formulir username/password"
-                    >
-                      Ketik
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="pt-2 text-center">
-              <button
-                type="button"
-                onClick={() => setActiveRoleTab('manual')}
-                className="text-xs text-slate-500 hover:text-slate-800 font-semibold inline-flex items-center gap-1 cursor-pointer"
-              >
-                <span>Atau masuk menggunakan username lain</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================================= */}
-        {/* TAB 2: AKUN GURU / PENGAWAS UJIAN (1-KLIK MASUK TANPA KETIK) */}
-        {/* ========================================================================= */}
-        {activeRoleTab === 'teacher' && (
-          <div className="space-y-3 animate-in fade-in">
-            <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-2xl p-3.5 text-xs text-indigo-900">
-              <div className="flex items-center gap-2 font-bold mb-1">
-                <Briefcase className="w-4 h-4 text-indigo-600" />
-                <span>Akun Guru &amp; Pengawas Terdaftar ({teacherUsers.length})</span>
-              </div>
-              <p className="text-[11.5px] text-indigo-800/90 leading-relaxed">
-                Klik tombol <strong>"Masuk Guru"</strong> pada guru mata pelajaran di bawah untuk langsung membuka Bank Soal &amp; Ruang Pengawas:
-              </p>
-            </div>
-
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {teacherUsers.map((teacher) => (
-                <div
-                  key={teacher.id}
-                  className="p-3 bg-slate-50 border border-slate-200 hover:border-indigo-400 rounded-2xl transition hover:shadow-xs flex items-center justify-between gap-3"
-                >
-                  <div className="min-w-0">
-                    <div className="font-extrabold text-xs text-slate-900 truncate">
-                      {teacher.name}
-                    </div>
-                    <div className="text-[11px] text-indigo-700 font-semibold truncate mt-0.5">
-                      {teacher.subjectOrPosition || 'Guru Mata Pelajaran MTs'}
-                    </div>
-                    <div className="text-[10.5px] text-slate-400 font-mono mt-0.5">
-                      User: <strong className="text-slate-600">{teacher.username}</strong>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      disabled={isLoading}
-                      onClick={() => handleDirectLogin(teacher)}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs flex items-center gap-1 cursor-pointer shadow-xs active:scale-95 transition disabled:opacity-50"
-                    >
-                      <Zap className="w-3.5 h-3.5" />
-                      <span>Masuk Guru</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleQuickFill(teacher.username, teacher.password || 'guru123')}
-                      className="px-2 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold cursor-pointer"
-                      title="Isi formulir username/password"
-                    >
-                      Ketik
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="pt-2 text-center">
-              <button
-                type="button"
-                onClick={() => setActiveRoleTab('manual')}
-                className="text-xs text-slate-500 hover:text-slate-800 font-semibold inline-flex items-center gap-1 cursor-pointer"
-              >
-                <span>Atau masuk dengan akun guru manual</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================================= */}
-        {/* TAB 3: AKUN SISWA / SANTRI PESERTA UJIAN */}
+        {/* TAB 1: AKUN SISWA / SANTRI PESERTA UJIAN (FORM + SCROLL PILIHAN NAMA)    */}
         {/* ========================================================================= */}
         {activeRoleTab === 'student' && (
           <div className="space-y-4 animate-in fade-in">
@@ -573,7 +413,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, isModal = false
                     required
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Masukkan NISN atau username..."
+                    placeholder="Ketik NISN atau pilih dari daftar di bawah..."
                     className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
                   />
                 </div>
@@ -590,7 +430,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, isModal = false
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Masukkan kata sandi..."
+                    placeholder="Ketik kata sandi (default: siswa123)..."
                     className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
                   />
                   <button
@@ -621,29 +461,35 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, isModal = false
               </div>
             </form>
 
-            {/* Quick Student Picker by Class */}
-            <div className="pt-3 border-t border-slate-100">
+            {/* Quick Student Picker by Class - TETAP DITAMPILKAN UNTUK SISWA */}
+            <div className="pt-3.5 border-t border-slate-100">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-bold text-slate-500">
-                  Pilih Cepat Siswa dari Database ({studentUsers.length})
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <GraduationCap className="w-4 h-4 text-emerald-600" />
+                  <span className="text-[11.5px] font-bold text-slate-700">
+                    Scroll Pilihan Siswa ({filteredStudentsForPicker.length} Terdaftar)
+                  </span>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setShowAccountsListModal(true)}
-                  className="text-[11px] text-emerald-700 hover:underline font-semibold cursor-pointer"
+                  onClick={() => {
+                    setModalRoleFilter('student');
+                    setShowAccountsListModal(true);
+                  }}
+                  className="text-[11px] text-emerald-700 hover:underline font-bold cursor-pointer"
                 >
                   Semua Siswa
                 </button>
               </div>
 
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-2.5">
                 <div className="relative flex-1">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
                   <input
                     type="text"
                     value={studentSearchQuery}
                     onChange={(e) => setStudentSearchQuery(e.target.value)}
-                    placeholder="Cari nama atau NISN..."
+                    placeholder="Cari nama santri atau NISN..."
                     className="w-full pl-8 pr-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
                   />
                 </div>
@@ -653,7 +499,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, isModal = false
                     onChange={(e) => setStudentClassFilter(e.target.value)}
                     className="py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700"
                   >
-                    <option value="all">Semua Kelas</option>
+                    <option value="all">Semua Rombel</option>
                     {classes.map(c => (
                       <option key={c.id} value={c.name}>{c.name}</option>
                     ))}
@@ -661,67 +507,102 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, isModal = false
                 )}
               </div>
 
-              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                {filteredStudentsForPicker.slice(0, 5).map(st => (
-                  <div
-                    key={st.id}
-                    className="p-2 bg-slate-50 hover:bg-emerald-50/60 border border-slate-200 rounded-xl flex items-center justify-between text-xs transition"
-                  >
-                    <div className="min-w-0">
-                      <div className="font-bold text-slate-800 truncate">{st.name}</div>
-                      <div className="text-[10px] text-slate-500 font-mono">
-                        {st.className || 'Peserta'} • NISN: {st.nisnOrNip || st.username}
+              {/* Scrollable list of students */}
+              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                {filteredStudentsForPicker.length === 0 ? (
+                  <div className="text-center py-4 text-slate-400 text-xs">
+                    Tidak ada siswa yang cocok dengan pencarian.
+                  </div>
+                ) : (
+                  filteredStudentsForPicker.map(st => (
+                    <div
+                      key={st.id}
+                      className="p-2.5 bg-slate-50 hover:bg-emerald-50/70 border border-slate-200 hover:border-emerald-300 rounded-xl flex items-center justify-between text-xs transition"
+                    >
+                      <div className="min-w-0 pr-2">
+                        <div className="font-extrabold text-slate-800 truncate">{st.name}</div>
+                        <div className="text-[10.5px] text-slate-500 font-mono mt-0.5">
+                          <span className="text-emerald-700 font-bold">{st.className || 'Peserta'}</span> • NISN: {st.nisnOrNip || st.username}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleDirectLogin(st)}
+                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer transition shadow-2xs flex items-center gap-1"
+                          title="Langsung masuk sebagai siswa ini"
+                        >
+                          <Zap className="w-3 h-3" />
+                          <span>Pilih</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUsername(st.username);
+                            setPassword(st.password || 'siswa123');
+                          }}
+                          className="px-2 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-lg text-xs font-semibold cursor-pointer"
+                          title="Isi NISN dan kata sandi ke formulir"
+                        >
+                          Isi
+                        </button>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDirectLogin(st)}
-                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold shrink-0 cursor-pointer transition shadow-2xs"
-                    >
-                      Pilih
-                    </button>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           </div>
         )}
 
         {/* ========================================================================= */}
-        {/* TAB 4: MANUAL CREDENTIALS INPUT */}
+        {/* TAB 2: AKUN GURU (WAJIB KETIK MANUAL, TIDAK ADA SCROLL PILIHAN GURU)     */}
         {/* ========================================================================= */}
-        {activeRoleTab === 'manual' && (
+        {activeRoleTab === 'teacher' && (
           <form onSubmit={handleSubmit} className="space-y-4 animate-in fade-in">
+            <div className="bg-indigo-50/80 border border-indigo-200 rounded-2xl p-3.5 text-xs text-indigo-950">
+              <div className="flex items-center gap-2 font-bold mb-1 text-indigo-900">
+                <Briefcase className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span>Login Akun Guru / Pengawas (Ketik Manual)</span>
+              </div>
+              <p className="text-[11.5px] text-indigo-800/90 leading-relaxed">
+                Untuk keamanan ujian, data akun guru tidak ditampilkan dalam daftar pilihan. Silakan <strong>ketik manual username dan password</strong> Anda.
+              </p>
+            </div>
+
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Username / NISN / NIP
+                Username / NIP Guru
               </label>
               <div className="relative">
                 <UserIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                 <input
                   type="text"
                   required
+                  autoFocus
+                  autoComplete="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Masukkan username atau NISN/NIP..."
-                  className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+                  placeholder="Ketik username atau NIP guru..."
+                  className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
                 />
               </div>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Kata Sandi / Password
+                Kata Sandi Guru
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Masukkan kata sandi..."
-                  className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+                  placeholder="Ketik kata sandi guru..."
+                  className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
                 />
                 <button
                   type="button"
@@ -733,67 +614,122 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, isModal = false
               </div>
             </div>
 
-            <div className="pt-2">
+            <div className="pt-1">
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs shadow-md cursor-pointer transition flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs shadow-md shadow-indigo-200 cursor-pointer transition flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {isLoading ? (
                   <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
                 ) : (
                   <>
-                    <span>Masuk ke Sistem CBT</span>
-                    <ArrowRight className="w-4 h-4" />
+                    <Briefcase className="w-4 h-4" />
+                    <span>Masuk sebagai Guru</span>
                   </>
                 )}
               </button>
             </div>
+
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-500 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-indigo-500 shrink-0" />
+              <span>Daftar pilihan nama guru ditiadakan demi menjaga keamanan naskah soal dan ruang pengawas.</span>
+            </div>
           </form>
         )}
 
-        {/* Quick Demo Credentials Bar below form */}
-        <div className="mt-5 pt-4 border-t border-slate-100">
-          <div className="text-[10.5px] font-bold text-slate-400 uppercase tracking-wider mb-2 text-center">
-            Pilihan Cepat Masuk Langsung (Database Aktif)
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => handleDirectLogin(adminUsers[0] || INITIAL_USERS[0])}
-              className="p-2 bg-rose-50/70 hover:bg-rose-100 border border-rose-200 rounded-xl text-center cursor-pointer transition"
-              title="Langsung masuk sebagai Admin"
-            >
-              <div className="text-[11px] font-bold text-rose-900 truncate">
-                {adminUsers[0]?.name ? adminUsers[0].name.split(' ')[0] : 'Admin'}
+        {/* ========================================================================= */}
+        {/* TAB 3: AKUN ADMIN (WAJIB KETIK MANUAL, TIDAK ADA SCROLL PILIHAN ADMIN)   */}
+        {/* ========================================================================= */}
+        {activeRoleTab === 'admin' && (
+          <form onSubmit={handleSubmit} className="space-y-4 animate-in fade-in">
+            <div className="bg-rose-50/80 border border-rose-200 rounded-2xl p-3.5 text-xs text-rose-950">
+              <div className="flex items-center gap-2 font-bold mb-1 text-rose-900">
+                <Shield className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>Login Administrator CBT (Ketik Manual)</span>
               </div>
-              <div className="text-[10px] text-rose-600 font-mono">1-Klik Admin</div>
-            </button>
+              <p className="text-[11.5px] text-rose-800/90 leading-relaxed">
+                Untuk keamanan sistem madrasah, akun admin tidak dimunculkan di daftar pilihan. Silakan <strong>ketik manual username dan password</strong> Administrator.
+              </p>
+            </div>
 
-            <button
-              type="button"
-              onClick={() => handleDirectLogin(teacherUsers[0] || INITIAL_USERS[1])}
-              className="p-2 bg-indigo-50/70 hover:bg-indigo-100 border border-indigo-200 rounded-xl text-center cursor-pointer transition"
-              title="Langsung masuk sebagai Guru"
-            >
-              <div className="text-[11px] font-bold text-indigo-900 truncate">
-                {teacherUsers[0]?.name ? teacherUsers[0].name.split(' ')[0] : 'Guru'}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Username Administrator
+              </label>
+              <div className="relative">
+                <UserIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  autoComplete="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Ketik username admin..."
+                  className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-rose-500 focus:bg-white transition"
+                />
               </div>
-              <div className="text-[10px] text-indigo-600 font-mono">1-Klik Guru</div>
-            </button>
+            </div>
 
-            <button
-              type="button"
-              onClick={() => handleDirectLogin(studentUsers[0] || INITIAL_USERS[4])}
-              className="p-2 bg-emerald-50/70 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-center cursor-pointer transition"
-              title="Langsung masuk sebagai Siswa"
-            >
-              <div className="text-[11px] font-bold text-emerald-900 truncate">
-                {studentUsers[0]?.name ? studentUsers[0].name.split(' ')[0] : 'Siswa'}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Kata Sandi Administrator
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Ketik kata sandi admin..."
+                  className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-rose-500 focus:bg-white transition"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="p-1 text-slate-400 hover:text-slate-600 absolute right-3 top-2.5 cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
-              <div className="text-[10px] text-emerald-600 font-mono">1-Klik Siswa</div>
-            </button>
+            </div>
+
+            <div className="pt-1">
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs shadow-md shadow-rose-200 cursor-pointer transition flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isLoading ? (
+                  <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                ) : (
+                  <>
+                    <Shield className="w-4 h-4" />
+                    <span>Masuk sebagai Admin</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-500 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-rose-500 shrink-0" />
+              <span>Daftar pilihan nama admin ditiadakan demi melindungi data induk ujian dan konfigurasi madrasah.</span>
+            </div>
+          </form>
+        )}
+
+        {/* Info Keamanan Login */}
+        <div className="mt-5 pt-3.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+          <div className="flex items-center gap-1.5 text-slate-600 font-medium">
+            <Lock className="w-3.5 h-3.5 text-amber-600" />
+            <span>Akun Guru &amp; Admin wajib diketik manual</span>
           </div>
+          <span className="text-[10px] text-slate-400 font-mono">
+            {activeRoleTab === 'student' ? 'Scroll nama siswa aktif' : 'Mode ketik manual aktif'}
+          </span>
         </div>
       </div>
 
@@ -839,16 +775,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, isModal = false
             <span className="truncate">Pulihkan Database (.json)</span>
           </button>
 
-          {/* Tombol Sinkronisasi Cloud */}
+          {/* Tombol Sinkronisasi Server / Cloud */}
           <button
             type="button"
             onClick={handleCloudSync}
             disabled={isSyncingCloud}
             className="p-2.5 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 rounded-xl text-slate-800 hover:text-indigo-900 font-bold flex items-center justify-center gap-1.5 cursor-pointer transition text-left disabled:opacity-50"
-            title="Tarik data santri dan ujian yang telah tersimpan di Firebase Firestore"
+            title="Tarik data santri, guru, dan ujian yang telah tersimpan di Server Pusat atau Firebase Firestore"
           >
             <RefreshCw className={`w-4 h-4 text-indigo-600 shrink-0 ${isSyncingCloud ? 'animate-spin' : ''}`} />
-            <span className="truncate">{isSyncingCloud ? 'Menyinkronkan...' : 'Tarik dari Firebase'}</span>
+            <span className="truncate">{isSyncingCloud ? 'Menyinkronkan...' : 'Tarik dari Server/Cloud'}</span>
           </button>
         </div>
 
@@ -994,7 +930,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, isModal = false
                       
                       <div className="text-[11px] text-slate-500 font-mono flex flex-wrap items-center gap-2 mt-1">
                         <span>User: <strong className="text-slate-800">{u.username}</strong></span>
-                        {u.password && (
+                        {u.password && u.role === 'student' && (
                           <span>• Sandi: <strong className="text-slate-700">{u.password}</strong></span>
                         )}
                         {u.nisnOrNip && <span>• {u.role === 'student' ? 'NISN' : 'NIP'}: {u.nisnOrNip}</span>}
@@ -1004,38 +940,47 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, isModal = false
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
-                      {/* Tombol 1-Klik Langsung Masuk */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleDirectLogin(u);
-                          setShowAccountsListModal(false);
-                        }}
-                        className={`px-3 py-1.5 text-white rounded-xl font-bold text-xs cursor-pointer shrink-0 transition flex items-center gap-1 shadow-2xs ${
-                          u.role === 'admin'
-                            ? 'bg-rose-600 hover:bg-rose-700'
-                            : u.role === 'teacher'
-                            ? 'bg-indigo-600 hover:bg-indigo-700'
-                            : 'bg-emerald-600 hover:bg-emerald-700'
-                        }`}
-                        title="Langsung login masuk ke portal CBT dengan akun ini"
-                      >
-                        <Zap className="w-3.5 h-3.5" />
-                        <span>Langsung Masuk</span>
-                      </button>
-
-                      {/* Tombol Gunakan (Isi form) */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleQuickFill(u.username, u.password || '123456');
-                          setShowAccountsListModal(false);
-                        }}
-                        className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl font-semibold text-xs cursor-pointer shrink-0 transition"
-                        title="Ketik username dan password ke formulir login"
-                      >
-                        Ketik
-                      </button>
+                      {u.role === 'student' ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleDirectLogin(u);
+                              setShowAccountsListModal(false);
+                            }}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs cursor-pointer shrink-0 transition flex items-center gap-1 shadow-2xs"
+                            title="Langsung masuk sebagai siswa ini"
+                          >
+                            <Zap className="w-3.5 h-3.5" />
+                            <span>Pilih Siswa</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleQuickFill(u.username, u.password || 'siswa123', 'student');
+                              setShowAccountsListModal(false);
+                            }}
+                            className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl font-semibold text-xs cursor-pointer shrink-0 transition"
+                            title="Isi NISN ke formulir login"
+                          >
+                            Isi
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveRoleTab(u.role === 'admin' ? 'admin' : 'teacher');
+                            setShowAccountsListModal(false);
+                            setErrorMsg(null);
+                          }}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl font-semibold text-xs cursor-pointer shrink-0 transition flex items-center gap-1.5"
+                          title="Buka tab untuk mengetik username dan kata sandi manual"
+                        >
+                          <Lock className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Ketik Manual di Tab {u.role === 'admin' ? 'Admin' : 'Guru'}</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))

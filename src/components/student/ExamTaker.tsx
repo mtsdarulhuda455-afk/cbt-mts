@@ -39,6 +39,7 @@ import {
 import { isSplitScreenDetected } from '../../services/cbtEngine';
 import { MathRenderer } from '../common/MathRenderer';
 import { createStudentCamSnapshot } from '../../data/mockCbtData';
+import { safeStorage } from '../../utils/safeStorage';
 
 export const ExamTaker: React.FC = () => {
   const { 
@@ -173,7 +174,7 @@ export const ExamTaker: React.FC = () => {
     }
 
     if (currentUser?.id) {
-      localStorage.setItem(`cbt_token_${currentUser.id}_${activeExam.id}`, 'verified');
+      safeStorage.setItem(`cbt_token_${currentUser.id}_${activeExam.id}`, 'verified');
     }
     setIsTokenVerified(true);
     setTakerTokenError(null);

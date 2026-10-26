@@ -33,7 +33,10 @@ import {
   ExternalLink,
   QrCode,
   Printer,
-  Barcode
+  Barcode,
+  Server,
+  Globe,
+  FileCode
 } from 'lucide-react';
 
 export const CentralDatabaseView: React.FC = () => {
@@ -52,6 +55,7 @@ export const CentralDatabaseView: React.FC = () => {
     attendanceRecords,
     exportDatabaseJson, 
     importDatabaseJson, 
+    syncDatabaseToAllDevices,
     resetToFactoryData,
     firebaseStatus,
     firebaseProjectId,
@@ -82,6 +86,7 @@ export const CentralDatabaseView: React.FC = () => {
     };
   } | null>(null);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showHostingerModal, setShowHostingerModal] = useState(false);
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -520,11 +525,29 @@ export const CentralDatabaseView: React.FC = () => {
           />
           <button
             onClick={() => jsonBackupInputRef.current?.click()}
-            title="Pulihkan seluruh basis data dari 1 file JSON cadangan tanpa kehilangan data"
+            title="Pulihkan seluruh basis data dari 1 file JSON cadangan dan otomatis sebarkan ke seluruh perangkat"
             className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center gap-2 cursor-pointer transition shadow-xs"
           >
             <Upload className="w-4 h-4 text-emerald-400" />
             <span>Pulihkan / Restore DB</span>
+          </button>
+
+          {/* Tombol Sinkronkan ke Seluruh Perangkat */}
+          <button
+            onClick={async () => {
+              setIsManualSyncing(true);
+              setImportStatus('Menyinkronkan seluruh database ke Server Pusat & Cloud...');
+              const res = await syncDatabaseToAllDevices();
+              setIsManualSyncing(false);
+              setImportStatus(res.message);
+              setTimeout(() => setImportStatus(null), 8000);
+            }}
+            disabled={isManualSyncing}
+            title="Kirim dan sinkronkan data saat ini ke Server Pusat agar semua perangkat lain yang membuka link langsung menerima data terbaru"
+            className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-xs cursor-pointer transition disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 text-white ${isManualSyncing ? 'animate-spin' : ''}`} />
+            <span>Sinkronkan ke Seluruh Perangkat</span>
           </button>
 
           {/* Reset Factory */}
@@ -738,33 +761,75 @@ export const CentralDatabaseView: React.FC = () => {
         </div>
       </div>
 
-      {/* Kesiapan Deploy ke Netlify / Hosting Pihak Kedua */}
-      <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-200/80 rounded-2xl p-4 shadow-2xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0 mt-0.5">
-              <Database className="w-5 h-5" />
+      {/* Kartu Khusus Deployment Hostinger (Minimal PHP 8.2 / 8.3 / 8.4 / 8.5+) & Folder dist/git */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/40 rounded-3xl p-5 text-white shadow-xl space-y-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300 shrink-0 shadow-inner mt-0.5">
+              <Server className="w-5 h-5 text-indigo-400" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 text-xs sm:text-sm flex items-center gap-2">
-                <span>Panduan Deployment ke Pihak Kedua (Netlify / Vercel / Hosting Sendiri)</span>
-                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded-md uppercase">
-                  Penting
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-black uppercase tracking-wider text-indigo-200">
+                  Folder Siap Upload Hostinger: dist/git (PHP &ge; 8.2)
                 </span>
-              </h3>
-              <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                Browser pada domain baru (seperti Netlify) memiliki <em>localStorage</em> terisolasi. Agar Anda dan seluruh santri/guru dapat langsung login di domain Netlify:
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2 text-[11px]">
-                <div className="bg-white/80 border border-emerald-200 p-2 rounded-xl">
-                  <strong className="text-emerald-800 block mb-0.5">Metode 1: File Backup JSON (Paling Mudah)</strong>
-                  Klik tombol <strong>"Cadangkan Database"</strong> di atas. Setelah dideploy ke Netlify, di halaman login Netlify langsung klik <strong>"Pulihkan Database (.json)"</strong>. Seluruh data aktif seketika.
-                </div>
-                <div className="bg-white/80 border border-indigo-200 p-2 rounded-xl">
-                  <strong className="text-indigo-800 block mb-0.5">Metode 2: Cloud Firestore (Otomatis)</strong>
-                  Klik tombol <strong>"Unggah ke Firebase"</strong> di atas. Saat membuka aplikasi di Netlify, sistem akan otomatis menarik data akun dari cloud.
-                </div>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                  <span>Minimal PHP 8.2 (8.2 / 8.3 / 8.4 / 8.5+)</span>
+                </span>
               </div>
+              <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                Folder <code className="px-1.5 py-0.5 bg-black/40 text-emerald-300 rounded font-mono text-[11px]">dist/git</code> telah siap dan dikompilasi lengkap dengan backend <strong>minimal PHP 8.2</strong> (kompatibel penuh ke atas untuk <strong>PHP 8.3, 8.4, 8.5, dan seterusnya</strong> tanpa perlu update lagi), konfigurasi fleksibel <code className="px-1 py-0.5 bg-black/40 text-indigo-200 rounded font-mono text-[11px]">.htaccess</code>, endpoint sinkronisasi otomatis, serta basis data awal <code className="px-1 py-0.5 bg-black/40 text-amber-200 rounded font-mono text-[11px]">data/database_master.json</code>. Anda dapat langsung mengunggahnya ke <strong>Hostinger Git Deployment</strong> atau File Manager <code className="text-white font-mono">public_html</code>.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <a
+              href="/cbt_database.sql"
+              download="cbt_database.sql"
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg cursor-pointer transition border border-emerald-400/40"
+            >
+              <Download className="w-4 h-4" />
+              <span>Unduh File SQL (.sql)</span>
+            </a>
+            <button
+              onClick={() => setShowHostingerModal(true)}
+              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg cursor-pointer transition border border-indigo-400/40"
+            >
+              <FileCode className="w-4 h-4 text-emerald-300" />
+              <span>Panduan Hostinger & Import SQL</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-3 border-t border-white/10 text-xs">
+          <div className="bg-white/5 border border-white/10 px-3.5 py-2 rounded-xl flex items-center gap-2.5">
+            <Globe className="w-4 h-4 text-emerald-400 shrink-0" />
+            <div>
+              <span className="text-slate-400 block text-[10px]">Lokasi Bundle Siap Upload</span>
+              <strong className="text-white font-mono text-[11px]">dist/git/ (Lengkap)</strong>
+            </div>
+          </div>
+          <div className="bg-white/5 border border-white/10 px-3.5 py-2 rounded-xl flex items-center gap-2.5">
+            <Database className="w-4 h-4 text-amber-400 shrink-0" />
+            <div>
+              <span className="text-slate-400 block text-[10px]">File SQL Siap Import</span>
+              <strong className="text-amber-300 font-mono text-[11px]">cbt_database.sql (138 KB)</strong>
+            </div>
+          </div>
+          <div className="bg-white/5 border border-white/10 px-3.5 py-2 rounded-xl flex items-center gap-2.5">
+            <Server className="w-4 h-4 text-indigo-400 shrink-0" />
+            <div>
+              <span className="text-slate-400 block text-[10px]">Target Runtime PHP</span>
+              <strong className="text-emerald-300 font-mono text-[11px]">Min. 8.2 (8.2 - 8.5+)</strong>
+            </div>
+          </div>
+          <div className="bg-white/5 border border-white/10 px-3.5 py-2 rounded-xl flex items-center gap-2.5">
+            <HardDrive className="w-4 h-4 text-teal-400 shrink-0" />
+            <div>
+              <span className="text-slate-400 block text-[10px]">Dual Driver Storage</span>
+              <strong className="text-teal-300 font-mono text-[11px]">MySQL PDO & JSON Sync</strong>
             </div>
           </div>
         </div>
@@ -1677,6 +1742,166 @@ export const CentralDatabaseView: React.FC = () => {
                 className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs cursor-pointer transition"
               >
                 Tutup & Lanjutkan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Panduan Lengkap Upload Hostinger (Minimal PHP 8.2 / 8.3 / 8.4 / 8.5+) */}
+      {showHostingerModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 animate-in zoom-in-95 overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                  <Server className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">
+                    Panduan Upload Hostinger (Minimal PHP 8.2 / 8.3 / 8.4 / 8.5+)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Langkah mudah deploy folder <strong className="text-indigo-600 font-mono">dist/git</strong> ke Hostinger
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowHostingerModal(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-200/50 cursor-pointer transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto text-xs text-slate-700">
+              {/* Box Info Folder dist/git */}
+              <div className="p-4 bg-indigo-50/80 border border-indigo-200 rounded-2xl flex items-start gap-3">
+                <CheckCircle2 className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="text-indigo-950 font-bold block mb-1">
+                    Folder dist/git Sudah Terkompilasi Siap Pakai & Kompatibel ke Atas
+                  </strong>
+                  <p className="text-slate-600 leading-relaxed text-[11px]">
+                    Folder <code className="bg-white px-1.5 py-0.5 rounded border border-indigo-200 font-mono text-indigo-800">dist/git</code> telah berisi seluruh aset React, konfigurasi Apache <code className="bg-white px-1.5 py-0.5 rounded border border-indigo-200 font-mono text-indigo-800">.htaccess</code>, backend REST API <code className="bg-white px-1.5 py-0.5 rounded border border-indigo-200 font-mono text-indigo-800">api/index.php</code> (Minimal PHP 8.2, mendukung 8.2/8.3/8.4/8.5+), dan basis data master awal <code className="bg-white px-1.5 py-0.5 rounded border border-indigo-200 font-mono text-indigo-800">data/database_master.json</code>.
+                  </p>
+                </div>
+              </div>
+
+              {/* Box Download File SQL Siap Import */}
+              <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <Database className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="text-amber-950 font-bold block mb-0.5">
+                      File SQL Tersedia: cbt_database.sql (138 KB)
+                    </strong>
+                    <p className="text-slate-600 text-[11px] leading-relaxed">
+                      Skema tabel dan data master awal siap di-import langsung ke <strong>phpMyAdmin Hostinger</strong>.
+                    </p>
+                  </div>
+                </div>
+                <a
+                  href="/cbt_database.sql"
+                  download="cbt_database.sql"
+                  className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shrink-0 transition shadow-xs"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Unduh cbt_database.sql</span>
+                </a>
+              </div>
+
+              {/* Langkah 1 */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                <div className="flex items-center gap-2 text-slate-900 font-bold">
+                  <span className="w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px]">1</span>
+                  <span>Setel Minimal Versi PHP 8.2 di Hostinger hPanel</span>
+                </div>
+                <p className="text-slate-600 leading-relaxed pl-7 text-[11px]">
+                  Buka hPanel Hostinger &rarr; <strong>Tingkat Lanjut (Advanced)</strong> &rarr; <strong>Konfigurasi PHP (PHP Configuration)</strong> &rarr; Pilih <strong>PHP 8.2</strong> atau versi di atasnya (<strong>PHP 8.3, PHP 8.4, PHP 8.5</strong>) lalu klik <strong>Simpan</strong>.
+                </p>
+                <div className="pl-7 text-[11px] text-emerald-700 font-medium">
+                  File <code className="font-mono bg-emerald-100/60 px-1 py-0.5 rounded">.htaccess</code> di folder <code className="font-mono">dist/git</code> otomatis fleksibel dan kompatibel ke atas sehingga Anda bebas berganti ke versi PHP yang lebih baru tanpa perlu memperbarui kode lagi.
+                </div>
+              </div>
+
+              {/* Langkah 2: Import SQL ke phpMyAdmin */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                <div className="flex items-center gap-2 text-slate-900 font-bold">
+                  <span className="w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px]">2</span>
+                  <span>Import Database SQL ke phpMyAdmin Hostinger</span>
+                </div>
+                <div className="pl-7 space-y-2 text-[11px] text-slate-600">
+                  <p>
+                    1. Di hPanel Hostinger, buat database MySQL baru di menu <strong>Database &rarr; Kelola Database</strong>.
+                  </p>
+                  <p>
+                    2. Klik <strong>Masuk ke phpMyAdmin</strong> &rarr; klik nama database Anda di panel kiri &rarr; klik tab <strong>Import</strong> di bagian atas.
+                  </p>
+                  <p>
+                    3. Pilih file <strong>cbt_database.sql</strong> yang ada di folder <code className="bg-slate-100 font-mono px-1 py-0.5 rounded text-indigo-600">dist/git</code> (atau unduh lewat tombol di atas), lalu klik <strong>Kirim / Go</strong>.
+                  </p>
+                  <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-emerald-900 text-[11px]">
+                    <strong>Hubungkan ke Backend (Opsional):</strong> Di folder <code className="font-mono">api/</code>, ganti nama <code className="font-mono">config.sample.php</code> menjadi <code className="font-mono">config.php</code> dan masukkan nama DB, user, & password Anda. Jika tidak diatur pun, sistem otomatis berjalan dengan mode file JSON terpusat yang tetap aman dan sinkron!
+                  </div>
+                </div>
+              </div>
+
+              {/* Langkah 3 */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                <div className="flex items-center gap-2 text-slate-900 font-bold">
+                  <span className="w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px]">3</span>
+                  <span>Upload Folder dist/git ke Hostinger</span>
+                </div>
+                <div className="pl-7 space-y-2 text-[11px]">
+                  <div className="bg-white p-3 rounded-xl border border-slate-200">
+                    <strong className="text-slate-900 block mb-0.5">Metode A: File Manager / FTP (Paling Praktis)</strong>
+                    <span className="text-slate-600">
+                      Buka File Manager di Hostinger &rarr; masuk ke folder <code className="bg-slate-100 font-mono px-1 py-0.5 rounded text-indigo-600">public_html</code> &rarr; upload seluruh isi folder <code className="bg-slate-100 font-mono px-1 py-0.5 rounded text-indigo-600">dist/git</code> (termasuk file hidden <code className="bg-slate-100 font-mono px-1 py-0.5 rounded">.htaccess</code>).
+                    </span>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-slate-200">
+                    <strong className="text-slate-900 block mb-0.5">Metode B: Hostinger Git Deployment</strong>
+                    <span className="text-slate-600">
+                      Buka hPanel &rarr; Git &rarr; hubungkan ke repositori Git Anda &rarr; arahkan target direktori deploy ke <code className="bg-slate-100 font-mono px-1 py-0.5 rounded text-indigo-600">public_html</code>.
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Langkah 4 */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                <div className="flex items-center gap-2 text-slate-900 font-bold">
+                  <span className="w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px]">4</span>
+                  <span>Izin Tulis Folder Data (Permissions)</span>
+                </div>
+                <p className="text-slate-600 leading-relaxed pl-7 text-[11px]">
+                  Pastikan folder <code className="bg-slate-100 font-mono px-1 py-0.5 rounded text-indigo-600">public_html/data</code> memiliki izin <strong>755</strong> (atau <strong>777</strong>) agar skrip PHP dapat menyimpan sinkronisasi database saat admin memperbarui soal/akun.
+                </p>
+              </div>
+
+              {/* Langkah 5 */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                <div className="flex items-center gap-2 text-slate-900 font-bold">
+                  <span className="w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px]">5</span>
+                  <span>Verifikasi Runtime PHP & Database</span>
+                </div>
+                <p className="text-slate-600 leading-relaxed pl-7 text-[11px]">
+                  Setelah upload selesai, buka URL: <code className="bg-slate-100 font-mono px-1 py-0.5 rounded text-indigo-600">https://domain-anda.com/api/health</code> pada browser. Sistem akan mengembalikan respon status <code className="bg-slate-100 font-mono px-1 py-0.5 rounded text-emerald-600 font-bold">&quot;status&quot;: &quot;ok&quot;, &quot;is_php_supported&quot;: true, &quot;php_min_version&quot;: &quot;8.2&quot;</code>.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+              <span className="text-[11px] text-slate-500 font-mono">
+                Panduan lengkap juga tersimpan di: PANDUAN_HOSTINGER.md
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowHostingerModal(false)}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs cursor-pointer transition shadow-xs"
+              >
+                Tutup Panduan
               </button>
             </div>
           </div>

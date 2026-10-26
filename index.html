@@ -14,44 +14,84 @@
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous" />
     <script>
-      // Prevent "Cannot set property fetch of #<Window> which has only a getter"
-      // in restricted iframe environments and polyfills
+      // 1. Proactive fetch getter & setter definition to eliminate:
+      // "TypeError: Cannot set property fetch of #<Window> which has only a getter"
+      // caused by browser extensions or sandboxed iframe interceptors.
       (function() {
         try {
           if (typeof window !== 'undefined') {
-            window.addEventListener('error', function(event) {
-              if (event && event.message && event.message.indexOf('fetch') !== -1 && event.message.indexOf('getter') !== -1) {
-                event.preventDefault();
-                event.stopPropagation();
-                return true;
-              }
-            }, true);
-
-            var origFetch = typeof window.fetch === 'function' ? window.fetch.bind(window) : null;
-            var currentFetch = origFetch;
+            var origFetch = window.fetch;
+            var activeFetch = origFetch;
 
             try {
-              if (typeof Window !== 'undefined' && Window.prototype) {
-                var protoDesc = Object.getOwnPropertyDescriptor(Window.prototype, 'fetch');
-                if (protoDesc && !protoDesc.set && protoDesc.configurable) {
-                  Object.defineProperty(Window.prototype, 'fetch', {
-                    get: function() { return currentFetch || origFetch; },
-                    set: function(v) { currentFetch = v; },
+              Object.defineProperty(window, 'fetch', {
+                get: function() {
+                  return activeFetch;
+                },
+                set: function(newFetch) {
+                  activeFetch = newFetch;
+                },
+                configurable: true,
+                enumerable: true
+              });
+            } catch (e1) {
+              try {
+                if (window.Window && window.Window.prototype) {
+                  Object.defineProperty(window.Window.prototype, 'fetch', {
+                    get: function() {
+                      return activeFetch;
+                    },
+                    set: function(newFetch) {
+                      activeFetch = newFetch;
+                    },
                     configurable: true,
                     enumerable: true
                   });
                 }
-              }
-            } catch (e1) {}
+              } catch (e2) {}
+            }
 
-            try {
-              Object.defineProperty(window, 'fetch', {
-                get: function() { return currentFetch || origFetch; },
-                set: function(v) { currentFetch = v; },
-                configurable: true,
-                enumerable: true
-              });
-            } catch (e2) {}
+            // Universal filter for third-party extension errors
+            window.__isExtensionError = function(event) {
+              try {
+                var reason = (event && (event.error || event.reason)) || {};
+                var msg = (event && event.message) || reason.message || '';
+                var filename = (event && event.filename) || '';
+                var stack = reason.stack || '';
+                var target = event && event.target && event.target.src ? event.target.src : '';
+                var combined = (msg + ' ' + filename + ' ' + stack + ' ' + target).toLowerCase();
+
+                return (
+                  combined.indexOf('chrome-extension://') !== -1 ||
+                  combined.indexOf('moz-extension://') !== -1 ||
+                  combined.indexOf('safari-extension://') !== -1 ||
+                  combined.indexOf('has only a getter') !== -1 ||
+                  combined.indexOf('cannot set property fetch') !== -1 ||
+                  combined.indexOf('eppiocemhmnlbhjplcgkofciiegomcon') !== -1 ||
+                  combined.indexOf('requests.js') !== -1 ||
+                  combined.indexOf('executors/200.js') !== -1
+                );
+              } catch (err) {
+                return false;
+              }
+            };
+
+            window.addEventListener('error', function(event) {
+              if (window.__isExtensionError && window.__isExtensionError(event)) {
+                if (event.preventDefault) event.preventDefault();
+                if (event.stopPropagation) event.stopPropagation();
+                if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+                return true;
+              }
+            }, true);
+
+            window.addEventListener('unhandledrejection', function(event) {
+              if (window.__isExtensionError && window.__isExtensionError(event)) {
+                if (event.preventDefault) event.preventDefault();
+                if (event.stopPropagation) event.stopPropagation();
+                return true;
+              }
+            }, true);
           }
         } catch (e) {}
       })();
@@ -61,7 +101,212 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   </head>
   <body class="bg-slate-50 text-slate-800 antialiased selection:bg-indigo-500 selection:text-white">
-    <div id="root"></div>
+    <div id="root">
+      <div id="initial-loader" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0f172a; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; padding: 24px; text-align: center;">
+        <div style="width: 64px; height: 64px; border-radius: 18px; background: linear-gradient(135deg, #4f46e5, #06b6d4); display: flex; align-items: center; justify-content: center; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.4);">
+          <svg style="width: 34px; height: 34px; color: white;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+          </svg>
+        </div>
+        <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 8px 0; letter-spacing: -0.025em; color: #ffffff;">EduExam CBT Pro</h1>
+        <p id="loader-status-text" style="font-size: 13px; color: #94a3b8; margin: 0 0 24px 0; max-width: 360px; line-height: 1.5;">Memuat sistem ujian daring & sinkronisasi basis data...</p>
+        
+        <div id="loader-spinner" style="width: 40px; height: 40px; border: 3px solid rgba(255, 255, 255, 0.15); border-top-color: #6366f1; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+
+        <!-- Dynamic Fallback Container if initialization takes > 3.5s or encounters script load errors -->
+        <div id="loader-fallback-card" style="display: none; margin-top: 24px; max-width: 420px; width: 100%; background: rgba(30, 41, 59, 0.9); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 16px; padding: 18px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4); text-align: center;">
+          <div style="font-size: 13px; color: #cbd5e1; margin-bottom: 14px; line-height: 1.5;" id="loader-fallback-msg">
+            Pemuatan skrip memerlukan waktu beberapa saat atau browser sedang memproses cache.
+          </div>
+          <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+            <button id="btn-reload-page" onclick="reloadClean()" style="padding: 10px 18px; background: #4f46e5; color: #ffffff; border: none; border-radius: 10px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);">
+              Muat Ulang Bersih
+            </button>
+            <button id="btn-force-enter" onclick="forceEnterApp()" style="padding: 10px 18px; background: #334155; color: #e2e8f0; border: 1px solid #475569; border-radius: 10px; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.2s;">
+              Bersihkan Cache & Reset
+            </button>
+          </div>
+        </div>
+
+        <style>
+          @keyframes spin { to { transform: rotate(360deg); } }
+        </style>
+
+        <noscript>
+          <div style="margin-top: 24px; padding: 12px 18px; background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: 8px; color: #fca5a5; font-size: 13px;">
+            Aplikasi CBT memerlukan JavaScript aktif di browser Anda.
+          </div>
+        </noscript>
+      </div>
+    </div>
+
+    <!-- Intelligent Watchdog & Diagnostics Script -->
+    <script>
+      (function() {
+        window.__EDUEAM_MOUNTED__ = false;
+
+        function showDiagnosticCard(title, message, isError) {
+          var card = document.getElementById('loader-fallback-card');
+          var status = document.getElementById('loader-status-text');
+          var msg = document.getElementById('loader-fallback-msg');
+          var spinner = document.getElementById('loader-spinner');
+
+          if (card && msg) {
+            if (isError && spinner) {
+              spinner.style.borderTopColor = '#f43f5e';
+            }
+            if (status && title) {
+              status.innerText = title;
+            }
+            msg.innerHTML = message;
+            card.style.display = 'block';
+          }
+        }
+
+        // 1. INSTANT CHECK: Detect if root development index.html was mistakenly uploaded to production
+        var isViteDev = window.location.hostname === 'localhost' || 
+                        window.location.hostname === '127.0.0.1' || 
+                        window.location.hostname.indexOf('run.app') !== -1 ||
+                        window.location.port === '3000' ||
+                        window.location.port === '5173';
+
+        var rawTypeScriptScript = document.querySelector('script[src*="main.tsx"]');
+        if (!isViteDev && rawTypeScriptScript) {
+          // Check if dist/index.html exists on this server
+          if (window.fetch) {
+            fetch('./dist/index.html', { method: 'HEAD' }).then(function(res) {
+              if (res.ok) {
+                window.location.replace('./dist/');
+              }
+            }).catch(function() {});
+          }
+
+          setTimeout(function() {
+            if (window.__EDUEAM_MOUNTED__) return;
+            var spinner = document.getElementById('loader-spinner');
+            if (spinner) spinner.style.display = 'none';
+            showDiagnosticCard(
+              'Perlu Upload Berkas Hasil Build (dist)',
+              '<div style="text-align:left; font-size:12px; line-height:1.6; color:#e2e8f0;">' +
+              '<p style="margin:0 0 8px 0; color:#f87171; font-weight:600;">⚠️ Anda meng-upload berkas Source Code mentah (memanggil <code>/src/main.tsx</code>).</p>' +
+              '<p style="margin:0 0 10px 0; color:#94a3b8;">Server Hostinger tidak memiliki compiler Vite/TypeScript, sehingga browser tidak dapat menjalankan berkas .tsx.</p>' +
+              '<div style="background:rgba(15,23,42,0.8); border:1px solid rgba(99,102,241,0.3); border-radius:10px; padding:10px; margin-bottom:10px;">' +
+              '<strong style="color:#a5b4fc;">Langkah Perbaikan (1 Menit):</strong><br>' +
+              '1. Buka Hostinger File Manager Anda.<br>' +
+              '2. Upload dan ekstrak file <strong>cbt-hostinger-siap-upload.zip</strong> (atau upload isi folder <strong>dist/git</strong>).<br>' +
+              '3. File <code>index.html</code> hasil build akan memanggil berkas JavaScript produksi (<code>assets/*.js</code>).' +
+              '</div>' +
+              '</div>',
+              true
+            );
+          }, 300);
+        }
+
+        // Catch unhandled promise rejections during module loading
+        window.addEventListener('unhandledrejection', function(event) {
+          if (window.__EDUEAM_MOUNTED__) return;
+          if (window.__isExtensionError && window.__isExtensionError(event)) return;
+          showDiagnosticCard(
+            'Kendala Modul Skrip',
+            '<span style="color:#f43f5e; font-weight:600;">Modul Gagal Dimuat:</span> ' + (event.reason && event.reason.message ? event.reason.message : 'Browser menolak memproses modul skrip mentah.'),
+            true
+          );
+        });
+
+        // Catch true uncaught JavaScript errors (ignore passive font/image/link non-fatal events)
+        window.addEventListener('error', function(e) {
+          if (window.__EDUEAM_MOUNTED__) return;
+          if (window.__isExtensionError && window.__isExtensionError(e)) return;
+
+          // If this is a resource error on an element other than <script>, do not block loading
+          if (e.target && e.target !== window && e.target.tagName !== 'SCRIPT') {
+            return;
+          }
+
+          // If a script failed to load
+          if (e.target && e.target.tagName === 'SCRIPT') {
+            var scriptSrc = e.target.src || '';
+            var scriptName = scriptSrc.split('/').pop() || 'skrip modul';
+            
+            // Probe the server to get exact HTTP diagnostic
+            if (scriptSrc && window.fetch) {
+              fetch(scriptSrc, { method: 'HEAD', cache: 'no-cache' })
+                .then(function(res) {
+                  if (res.status === 404) {
+                    showDiagnosticCard(
+                      'Berkas Skrip Belum Ter-upload Lengkap',
+                      '<span style="color:#f43f5e; font-weight:600;">HTTP 404:</span> Berkas <code>' + scriptName + '</code> tidak ditemukan di server.<br><small style="color:#94a3b8; display:block; margin-top:6px;">Pastikan seluruh folder <strong>assets/</strong> dari <code>dist/git</code> sudah di-upload ke Hostinger File Manager.</small>',
+                      true
+                    );
+                  } else if (res.status === 403) {
+                    showDiagnosticCard(
+                      'Akses Berkas Dibatasi',
+                      '<span style="color:#f43f5e; font-weight:600;">HTTP 403:</span> Server membatasi akses ke <code>' + scriptName + '</code>.<br><small style="color:#94a3b8; display:block; margin-top:6px;">Ubah permission folder <strong>assets/</strong> menjadi <strong>755</strong> di File Manager.</small>',
+                      true
+                    );
+                  } else {
+                    showDiagnosticCard(
+                      'Penyegaran Skrip Diperlukan',
+                      '<span style="color:#f43f5e; font-weight:600;">Status ' + res.status + ':</span> Respon tidak sesuai.<br><small style="color:#94a3b8; display:block; margin-top:6px;">Klik tombol di bawah untuk memuat ulang dengan pembersihan cache.</small>',
+                      true
+                    );
+                  }
+                })
+                .catch(function() {
+                  showDiagnosticCard(
+                    'Kendala Jaringan / Cache',
+                    '<span style="color:#f43f5e; font-weight:600;">Koneksi Terhambat:</span> Browser mendeteksi gangguan saat mengunduh <code>' + scriptName + '</code>.<br><small style="color:#94a3b8; display:block; margin-top:6px;">Klik tombol "Muat Ulang Bersih" di bawah.</small>',
+                    true
+                  );
+                });
+              return;
+            }
+          }
+
+          // Script runtime error with real message
+          if (e && e.message) {
+            showDiagnosticCard(
+              'Penyegaran Modul Aplikasi Diperlukan',
+              '<span style="color:#f43f5e; font-weight:600;">Pemberitahuan Sistem:</span> ' + e.message + '<br><small style="color:#94a3b8; display:block; margin-top:6px;">Klik tombol di bawah untuk menyegarkan modul.</small>',
+              true
+            );
+          }
+        }, true);
+
+        // Friendly progressive timer: 4.5s updates status, 8.5s offers refresh helper without blocking
+        setTimeout(function() {
+          if (!window.__EDUEAM_MOUNTED__) {
+            var status = document.getElementById('loader-status-text');
+            if (status) status.innerText = 'Menyelesaikan unduhan modul CBT & inisialisasi...';
+          }
+        }, 4500);
+
+        setTimeout(function() {
+          if (!window.__EDUEAM_MOUNTED__) {
+            showDiagnosticCard(
+              'Pemuatan Modul Sedang Berlangsung',
+              'Sistem sedang menyelesaikan pengunduhan komponen antarmuka ujian.<br><small style="color:#94a3b8; display:block; margin-top:6px;">Jika jaringan Anda lambat, klik "Muat Ulang Bersih" untuk mempercepat sinkronisasi.</small>',
+              false
+            );
+          }
+        }, 8500);
+
+        window.forceEnterApp = function() {
+          try {
+            localStorage.clear();
+            sessionStorage.clear();
+          } catch(e) {}
+          // Cache-busting navigation
+          var baseUrl = window.location.href.split('?')[0].split('#')[0];
+          window.location.replace(baseUrl + '?v=' + Date.now());
+        };
+
+        window.reloadClean = function() {
+          var baseUrl = window.location.href.split('?')[0].split('#')[0];
+          window.location.replace(baseUrl + '?nocache=' + Date.now());
+        };
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
