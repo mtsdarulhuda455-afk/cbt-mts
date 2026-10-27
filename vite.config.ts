@@ -17,11 +17,14 @@ export default defineConfig(() => {
       },
     },
     build: {
-      chunkSizeWarningLimit: 1200,
+      chunkSizeWarningLimit: 2500,
       rollupOptions: {
         output: {
           manualChunks(id) {
             if (id.includes('node_modules')) {
+              if (id.includes('firebase') || id.includes('@firebase')) {
+                return 'vendor-firebase';
+              }
               if (id.includes('react') || id.includes('react-dom')) {
                 return 'vendor-react';
               }
@@ -39,6 +42,12 @@ export default defineConfig(() => {
               }
               if (id.includes('lucide-react')) {
                 return 'vendor-icons';
+              }
+              if (id.includes('motion')) {
+                return 'vendor-motion';
+              }
+              if (id.includes('@google/genai')) {
+                return 'vendor-ai';
               }
               return 'vendor-core';
             }

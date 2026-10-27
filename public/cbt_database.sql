@@ -3,7 +3,7 @@
 -- Platform: Hostinger Web Hosting (MySQL 5.7+ / 8.0+ / MariaDB 10.3+)
 -- PHP Runtime: Minimum PHP 8.2 (Supports PHP 8.2, 8.3, 8.4, 8.5+)
 -- Encoding: UTF-8 Unicode (utf8mb4 / utf8mb4_unicode_ci)
--- Generated: 2026-10-24T09:42:57.541Z
+-- Generated: 2026-10-27T08:50:36.133Z
 -- ============================================================================
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;

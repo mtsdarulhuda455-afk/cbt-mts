@@ -11,6 +11,7 @@ import {
   saveCentralDatabaseSnapshot, 
   fetchCentralDatabaseSnapshot, 
   pushAllToFirestore,
+  fetchAllFirebaseData,
   isFirestoreQuotaExhausted,
   firebaseConfig
 } from './firebase';
@@ -78,19 +79,30 @@ export async function fetchUnifiedDatabase(): Promise<{
     console.warn('[Unified Sync] Server API tidak dapat dijangkau atau waktu habis (timeout):', serverErr);
   }
 
-  // Priority 2: Fetch from Firebase Firestore with 3s timeout
+  // Priority 2: Fetch from Firebase Firestore with 3.5s timeout
   if (!isFirestoreQuotaExhausted()) {
     try {
       const snapPromise = fetchCentralDatabaseSnapshot();
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500));
       const snap = await Promise.race([snapPromise, timeoutPromise]);
 
       if (snap && snap.users && snap.users.length > 0) {
-        console.log(`⚡ [Unified Sync] Database berhasil dimuat dari Firebase Cloud: ${snap.users.length} akun.`);
+        console.log(`⚡ [Unified Sync] Database berhasil dimuat dari Firebase Cloud Snapshot: ${snap.users.length} akun.`);
         return {
           source: 'firestore',
           data: snap as unknown as UnifiedDatabasePayload,
           message: `Berhasil memuat database dari Cloud Firebase (${snap.users.length} akun)`
+        };
+      }
+
+      // Read from Firestore collections
+      const fbData = await fetchAllFirebaseData();
+      if (fbData && fbData.users && fbData.users.length > 0) {
+        console.log(`⚡ [Unified Sync] Database berhasil dimuat dari Koleksi Firebase: ${fbData.users.length} akun.`);
+        return {
+          source: 'firestore',
+          data: fbData as unknown as UnifiedDatabasePayload,
+          message: `Berhasil memuat database dari Cloud Firebase (${fbData.users.length} akun)`
         };
       }
     } catch (fbErr) {
@@ -133,12 +145,13 @@ export async function saveUnifiedDatabase(data: UnifiedDatabasePayload): Promise
   // 2. Save to Firebase Firestore (Dual redundancy)
   if (!isFirestoreQuotaExhausted()) {
     try {
-      const snapRes = await saveCentralDatabaseSnapshot(data);
-      if (snapRes.success) {
+      // Push each collection document in batches (each doc well under 1MB)
+      const pushRes = await pushAllToFirestore(data);
+      if (pushRes.success) {
         cloudSynced = true;
       }
-      // Also push collection documents in background
-      pushAllToFirestore(data).catch(() => {});
+      // Also update the lightweight manifest (~1 KB)
+      await saveCentralDatabaseSnapshot(data);
     } catch (fbErr) {
       console.warn('[Unified Sync] Notice saving to Firestore:', fbErr);
     }

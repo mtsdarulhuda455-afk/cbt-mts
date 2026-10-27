@@ -733,6 +733,9 @@ export const CbtProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           setLastFirebaseSync(new Date().toLocaleTimeString('id-ID'));
           setFirebaseStatus('connected');
+        } else if (data) {
+          setLastFirebaseSync(new Date().toLocaleTimeString('id-ID'));
+          setFirebaseStatus('connected');
         }
       }
     }, (err) => {

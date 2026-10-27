@@ -91,6 +91,12 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     console.warn('[Firestore Offline-First Notice] Kuota harian Firestore gratis telah tercapai. Sistem beralih ke mode penyimpanan lokal offline-first (seluruh data tetap aman di peramban).');
     return;
   }
+  const str = String(error).toLowerCase();
+  const msg = (error instanceof Error ? error.message : str).toLowerCase();
+  if (msg.includes('maximum allowed size') || msg.includes('exceeds the maximum allowed')) {
+    console.warn(`[Firestore Size Limit Notice] Dokumen ${path || ''} melampaui batas 1MB Firestore. Sistem menyimpan data dalam koleksi terpisah.`);
+    return;
+  }
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     operationType,
@@ -125,14 +131,19 @@ export async function testFirestoreConnection(): Promise<boolean> {
 }
 
 /**
- * Save unified master snapshot into Firestore so any device can load it immediately
+/**
+ * Save unified master snapshot metadata manifest into Firestore.
+ * CRITICAL: Storing full arrays of exams, questions, and users inside a single document
+ * will easily exceed Firestore's strict 1 MiB (1,048,576 bytes) document limit.
+ * Therefore, this document stores the synchronized lightweight manifest and status summary (~1 KB),
+ * while full data is persisted across individual collection documents (users, classes, exams, sessions, etc.).
  */
 export async function saveCentralDatabaseSnapshot(data: {
-  users: User[];
-  classes: ClassGroup[];
-  exams: Exam[];
-  sessions: StudentExamSession[];
-  settings: SystemSettings;
+  users?: User[];
+  classes?: ClassGroup[];
+  exams?: Exam[];
+  sessions?: StudentExamSession[];
+  settings?: SystemSettings;
   attendance?: AttendanceRecord[];
   attendanceSettings?: any;
   apiConfig?: any;
@@ -147,45 +158,49 @@ export async function saveCentralDatabaseSnapshot(data: {
       year: 'numeric'
     });
 
-    const snapshotPayload = {
+    const userCount = data.users?.length || 0;
+    const classCount = data.classes?.length || 0;
+    const examCount = data.exams?.length || 0;
+    const sessionCount = data.sessions?.length || 0;
+    const attendanceCount = data.attendance?.length || 0;
+
+    // Lightweight manifest ONLY - strictly kept under ~2 KB (well under Firestore's 1 MiB limit)
+    const manifestPayload = {
       updatedAt: timestamp,
       formattedDate: dateFormatted,
       schoolName: data.settings?.schoolName || 'MTs. Darul Huda',
       counts: {
-        users: data.users.length,
-        classes: data.classes.length,
-        exams: data.exams.length,
-        sessions: data.sessions.length,
-        attendance: data.attendance?.length || 0
+        users: userCount,
+        classes: classCount,
+        exams: examCount,
+        sessions: sessionCount,
+        attendance: attendanceCount
       },
-      users: data.users,
-      classes: data.classes,
-      exams: data.exams,
-      sessions: data.sessions,
-      settings: data.settings,
-      attendance: data.attendance || [],
-      attendanceSettings: data.attendanceSettings || {},
-      apiConfig: data.apiConfig || {}
+      status: 'active',
+      appVersion: 'v4.9.5',
+      lastSyncTime: new Date().toLocaleTimeString('id-ID')
     };
 
-    const cleanPayload = JSON.parse(JSON.stringify(snapshotPayload));
-    await setDoc(doc(db, 'system_snapshot', 'latest_database'), cleanPayload, { merge: true });
+    await setDoc(doc(db, 'system_snapshot', 'latest_database'), manifestPayload, { merge: true });
 
     // Also update settings/main to broadcast change to all listening clients
     await setDoc(doc(db, 'settings', 'main'), {
       ...JSON.parse(JSON.stringify(data.settings || {})),
       lastUpdatedTimestamp: timestamp,
       appVersion: 'v4.9.5',
-      updateMessage: `Pembaruan database (${data.users.length} akun, ${data.classes.length} rombel, ${data.exams.length} paket ujian) berhasil disinkronkan ke seluruh perangkat.`
+      updateMessage: `Pembaruan database (${userCount} akun, ${classCount} rombel, ${examCount} paket ujian) berhasil disinkronkan ke seluruh perangkat.`
     }, { merge: true });
 
     return { 
       success: true, 
-      message: `Snapshot basis data berhasil disimpan di Cloud (${data.users.length} akun). Semua perangkat lain dapat langsung mengakses!` 
+      message: `Manifest sinkronisasi Cloud berhasil diperbarui (${userCount} akun, ${examCount} ujian).` 
     };
   } catch (err: any) {
-    console.warn('Gagal menyimpan snapshot ke Firestore:', err);
-    return { success: false, message: err?.message || 'Gagal menyimpan snapshot cloud' };
+    if (isQuotaError(err)) {
+      markQuotaExhausted(true);
+    }
+    console.warn('Notice saving central snapshot to Firestore:', err?.message || err);
+    return { success: false, message: err?.message || 'Gagal memperbarui status snapshot cloud' };
   }
 }
 
@@ -217,20 +232,25 @@ export async function fetchCentralDatabaseSnapshot(): Promise<{
     const data = snap.data();
     if (!data) return null;
 
-    return {
-      hasSnapshot: true,
-      updatedAt: data.updatedAt || 0,
-      schoolName: data.schoolName || '',
-      users: Array.isArray(data.users) ? data.users : [],
-      classes: Array.isArray(data.classes) ? data.classes : [],
-      exams: Array.isArray(data.exams) ? data.exams : [],
-      sessions: Array.isArray(data.sessions) ? data.sessions : [],
-      settings: data.settings || null,
-      attendance: Array.isArray(data.attendance) ? data.attendance : [],
-      attendanceSettings: data.attendanceSettings || null,
-      apiConfig: data.apiConfig || null,
-      auditLogs: Array.isArray(data.auditLogs) ? data.auditLogs : []
-    };
+    // Only return data if full collection arrays are actually embedded
+    if (Array.isArray(data.users) && data.users.length > 0) {
+      return {
+        hasSnapshot: true,
+        updatedAt: data.updatedAt || 0,
+        schoolName: data.schoolName || '',
+        users: data.users,
+        classes: Array.isArray(data.classes) ? data.classes : [],
+        exams: Array.isArray(data.exams) ? data.exams : [],
+        sessions: Array.isArray(data.sessions) ? data.sessions : [],
+        settings: data.settings || null,
+        attendance: Array.isArray(data.attendance) ? data.attendance : [],
+        attendanceSettings: data.attendanceSettings || null,
+        apiConfig: data.apiConfig || null,
+        auditLogs: Array.isArray(data.auditLogs) ? data.auditLogs : []
+      };
+    }
+
+    return null;
   } catch (err) {
     console.warn('Notice reading central database snapshot from Firestore:', err);
     return null;
